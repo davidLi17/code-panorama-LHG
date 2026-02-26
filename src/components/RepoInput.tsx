@@ -3,19 +3,18 @@ import { Search, Github, Loader2, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface RepoInputProps {
-  onAnalyze: (url: string, token?: string) => void;
+  onAnalyze: (url: string) => void;
   isLoading: boolean;
   theme: 'light' | 'dark';
 }
 
 export function RepoInput({ onAnalyze, isLoading, theme }: RepoInputProps) {
   const [url, setUrl] = useState('');
-  const [token, setToken] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim()) {
-      onAnalyze(url.trim(), token.trim());
+      onAnalyze(url.trim());
     }
   };
 
@@ -72,27 +71,6 @@ export function RepoInput({ onAnalyze, isLoading, theme }: RepoInputProps) {
               ? "text-slate-500 group-focus-within/input:text-blue-400" 
               : "text-slate-400 group-focus-within/input:text-blue-500"
           )} />
-        </div>
-
-        <div className="relative group/input">
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="GitHub Token (可选 - 用于私有仓库或提高限额)"
-            className={clsx(
-              "w-full pl-11 pr-4 py-3.5 border rounded-xl focus:ring-2 outline-none transition-all text-sm",
-              isDark 
-                ? "bg-slate-950/50 border-slate-700 focus:ring-blue-500/50 focus:border-blue-500 text-slate-200 placeholder-slate-600 group-hover/input:border-slate-600" 
-                : "bg-gray-50 border-gray-200 focus:ring-blue-500/30 focus:border-blue-500 text-slate-800 placeholder-slate-400 group-hover/input:border-gray-300"
-            )}
-          />
-          <span className={clsx(
-            "absolute left-4 top-4 text-[10px] font-mono font-bold transition-colors",
-            isDark 
-              ? "text-slate-500 group-focus-within/input:text-blue-400" 
-              : "text-slate-400 group-focus-within/input:text-blue-500"
-          )}>KEY</span>
         </div>
 
         <button

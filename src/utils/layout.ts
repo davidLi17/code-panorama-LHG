@@ -107,11 +107,26 @@ const getTreeLayoutElements = (nodes: Node[], edges: Edge[]) => {
   return { nodes: layoutedNodes, edges };
 };
 
-export const transformGraphDataToFlow = (data: GraphData, activeModuleId?: string | null) => {
+export const transformGraphDataToFlow = (
+  data: GraphData,
+  activeModuleId?: string | null,
+  options?: { onManualDrill?: (nodeId: string) => void; maxDrillDepth?: number }
+) => {
   const moduleColorMap = new Map(data.modules?.map(m => [m.id, m.color]) || []);
   const moduleNameMap = new Map(data.modules?.map(m => [m.id, m.name]) || []);
+  const outDegree = new Map<string, number>();
+  data.edges.forEach((edge) => {
+    outDegree.set(edge.source, (outDegree.get(edge.source) || 0) + 1);
+  });
 
   const nodes: Node[] = data.nodes.map((node) => {
+    const isLeaf = (outDegree.get(node.id) || 0) === 0;
+    const nodeDepth = typeof node.depth === 'number' ? node.depth : undefined;
+    const canManualDrill = isLeaf
+      && typeof nodeDepth === 'number'
+      && typeof node.drillFlag === 'number'
+      && node.callStatus !== 'analyzing';
+
     return {
       id: node.id,
       type: 'custom',
@@ -120,7 +135,10 @@ export const transformGraphDataToFlow = (data: GraphData, activeModuleId?: strin
         color: moduleColorMap.get(node.module),
         module: moduleNameMap.get(node.module) || node.module,
         isDimmed: activeModuleId && node.module !== activeModuleId,
-        isHighlighted: activeModuleId && node.module === activeModuleId
+        isHighlighted: activeModuleId && node.module === activeModuleId,
+        isLeaf,
+        canManualDrill,
+        onManualDrill: options?.onManualDrill
       },
       position: { x: 0, y: 0 }, 
     };

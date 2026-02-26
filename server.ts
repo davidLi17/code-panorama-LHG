@@ -128,14 +128,19 @@ async function startServer() {
       if (token) headers.Authorization = `token ${token}`;
 
       const contents: Record<string, string> = {};
+      const errors: Record<string, string> = {};
 
       // Fetch in parallel (limit concurrency if needed, but for 5-10 files it's fine)
       await Promise.all(paths.map(async (filePath) => {
         try {
+          const encodedPath = String(filePath)
+            .split("/")
+            .map((part) => encodeURIComponent(part))
+            .join("/");
           // Use raw content URL for better reliability with large files
           // Or use API. API returns base64.
           const response = await githubApi.get(
-            `/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${filePath}`,
+            `/repos/${repoInfo.owner}/${repoInfo.repo}/contents/${encodedPath}`,
             { headers }
           );
           
@@ -143,15 +148,22 @@ async function startServer() {
             contents[filePath] = Buffer.from(response.data.content, "base64").toString("utf-8");
           } else {
              // Fallback or skip
-             contents[filePath] = "// Could not retrieve content or content is too large";
+             contents[filePath] = "";
+             errors[filePath] = "Could not retrieve content or content is too large";
           }
         } catch (e) {
           console.error(`Failed to fetch ${filePath}`, e);
-          contents[filePath] = "// Failed to fetch file";
+          contents[filePath] = "";
+          const status = (e as any)?.response?.status;
+          const message =
+            (e as any)?.response?.data?.message ||
+            (e as any)?.message ||
+            "Failed to fetch file";
+          errors[filePath] = status ? `${status}: ${message}` : message;
         }
       }));
 
-      res.json({ contents });
+      res.json({ contents, errors });
     } catch (error: any) {
       const status = error.response?.status || 500;
       const message = error.response?.data?.message || error.message;

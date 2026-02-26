@@ -26,6 +26,11 @@ export function parseGithubUrl(url: string): GithubRepoInfo | null {
 
 export function buildGithubHeaders(token?: string): Record<string, string> {
   const headers: Record<string, string> = {};
-  if (token) headers.Authorization = `token ${token}`;
+  const resolvedToken =
+    token?.trim() ||
+    process.env.GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_PAT?.trim() ||
+    "";
+  if (resolvedToken) headers.Authorization = `token ${resolvedToken}`;
   return headers;
 }

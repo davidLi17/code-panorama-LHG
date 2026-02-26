@@ -29,21 +29,93 @@ export function getLlmClient() {
 }
 
 export function extractJsonFromText(text: string) {
-  const trimmed = text.trim();
+  const trimmed = text.trim().replace(/^\uFEFF/, "");
+
+  const sanitizeJsonControlCharsInStrings = (input: string) => {
+    let out = "";
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+
+      if (inString) {
+        if (escaped) {
+          out += ch;
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          out += ch;
+          escaped = true;
+          continue;
+        }
+        if (ch === "\"") {
+          out += ch;
+          inString = false;
+          continue;
+        }
+
+        const code = ch.charCodeAt(0);
+        // Escape illegal control chars only when they appear inside JSON strings.
+        if (code <= 0x1f) {
+          switch (ch) {
+            case "\n":
+              out += "\\n";
+              break;
+            case "\r":
+              out += "\\r";
+              break;
+            case "\t":
+              out += "\\t";
+              break;
+            case "\b":
+              out += "\\b";
+              break;
+            case "\f":
+              out += "\\f";
+              break;
+            default:
+              out += `\\u${code.toString(16).padStart(4, "0")}`;
+          }
+          continue;
+        }
+
+        out += ch;
+        continue;
+      }
+
+      if (ch === "\"") {
+        inString = true;
+      }
+      out += ch;
+    }
+
+    return out;
+  };
+
+  const tryParse = (candidate: string) => {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      return JSON.parse(sanitizeJsonControlCharsInStrings(candidate));
+    }
+  };
+
   try {
-    return JSON.parse(trimmed);
+    return tryParse(trimmed);
   } catch {
     // Try fenced code block: ```json ... ```
     const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     if (fenceMatch?.[1]) {
-      return JSON.parse(fenceMatch[1]);
+      return tryParse(fenceMatch[1]);
     }
 
     // Fallback: find first JSON object block
     const firstBrace = trimmed.indexOf("{");
     const lastBrace = trimmed.lastIndexOf("}");
     if (firstBrace >= 0 && lastBrace > firstBrace) {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+      return tryParse(trimmed.slice(firstBrace, lastBrace + 1));
     }
 
     throw new Error("Model did not return valid JSON.");

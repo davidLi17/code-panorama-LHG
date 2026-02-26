@@ -33,13 +33,18 @@ interface GraphViewerProps {
   data: GraphData | null;
   theme: 'light' | 'dark';
   activeModule: string | null;
+  onManualDrill?: (nodeId: string) => void;
+  maxDrillDepth?: number;
+  onSelectNode?: (node: GraphNode) => void;
+  onUpdateNodeDescription?: (nodeId: string, description: string) => void;
 }
 
 // Inner component to use ReactFlow hooks
-const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, theme, activeModule }, ref) => {
+const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, theme, activeModule, onManualDrill, maxDrillDepth, onSelectNode, onUpdateNodeDescription }, ref) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [draftDescription, setDraftDescription] = useState('');
   const { getNodes } = useReactFlow();
 
   useImperativeHandle(ref, () => ({
@@ -60,6 +65,13 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
       if (element) {
         try {
             const bgColor = theme === 'dark' ? '#020617' : '#f8fafc'; // slate-950 or slate-50
+            const desiredPixelRatio = 6;
+            const maxExportPixels = 120_000_000; // safety cap to reduce browser canvas failures
+            const basePixels = Math.max(1, imageWidth * imageHeight);
+            const limitedPixelRatio = Math.max(
+              1,
+              Math.min(desiredPixelRatio, Math.sqrt(maxExportPixels / basePixels))
+            );
             const dataUrl = await toPng(element, {
                 backgroundColor: bgColor,
                 width: imageWidth,
@@ -69,7 +81,7 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
                     height: `${imageHeight}px`,
                     transform: `translate(${-nodesBounds.x + padding}px, ${-nodesBounds.y + padding}px) scale(1)`,
                 },
-                pixelRatio: 2,
+                pixelRatio: limitedPixelRatio,
             });
             
             const a = document.createElement('a');
@@ -88,7 +100,10 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
 
   useEffect(() => {
     if (data) {
-      const { nodes: layoutedNodes, edges: layoutedEdges } = transformGraphDataToFlow(data, activeModule);
+      const { nodes: layoutedNodes, edges: layoutedEdges } = transformGraphDataToFlow(data, activeModule, {
+        onManualDrill,
+        maxDrillDepth,
+      });
       // Pass theme to nodes via data
       const nodesWithTheme = layoutedNodes.map(node => ({
         ...node,
@@ -97,7 +112,7 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
       setNodes(nodesWithTheme);
       setEdges(layoutedEdges);
     }
-  }, [data, activeModule, setNodes, setEdges, theme]);
+  }, [data, activeModule, setNodes, setEdges, theme, onManualDrill, maxDrillDepth]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge({ ...params, animated: true, style: { stroke: theme === 'dark' ? '#475569' : '#94a3b8' } } as Edge, eds)),
@@ -108,12 +123,47 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
     const originalNode = data?.nodes.find(n => n.id === node.id);
     if (originalNode) {
         const moduleName = data?.modules?.find(m => m.id === originalNode.module)?.name || originalNode.module;
-        setSelectedNode({ ...originalNode, module: moduleName });
+        const selected = { ...originalNode, module: moduleName };
+        setSelectedNode(selected);
+        setDraftDescription(originalNode.description || '');
+        onSelectNode?.(selected);
     }
   };
 
   const onPaneClick = () => {
     setSelectedNode(null);
+    setDraftDescription('');
+  };
+
+  useEffect(() => {
+    if (!selectedNode || !data) return;
+    const latestNode = data.nodes.find(n => n.id === selectedNode.id);
+    if (!latestNode) return;
+    const moduleName = data.modules?.find(m => m.id === latestNode.module)?.name || latestNode.module;
+    if (
+      latestNode.description === selectedNode.description
+      && latestNode.label === selectedNode.label
+      && latestNode.file === selectedNode.file
+      && latestNode.line === selectedNode.line
+      && moduleName === selectedNode.module
+    ) {
+      return;
+    }
+    const refreshedNode = { ...latestNode, module: moduleName };
+    setSelectedNode(refreshedNode);
+    setDraftDescription(latestNode.description || '');
+  }, [data, selectedNode]);
+
+  const handleSaveDescription = () => {
+    if (!selectedNode || !onUpdateNodeDescription) return;
+    const nextDescription = draftDescription.trim();
+    onUpdateNodeDescription(selectedNode.id, nextDescription);
+    setSelectedNode((prev) => (prev ? { ...prev, description: nextDescription } : prev));
+  };
+
+  const handleCancelDescription = () => {
+    if (!selectedNode) return;
+    setDraftDescription(selectedNode.description || '');
   };
 
   if (!data) return null;
@@ -182,9 +232,41 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
                     </span>
                     )}
                 </div>
-                <p className={`text-sm leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-gray-600'}`}>
-                    {selectedNode.description || "暂无描述"}
-                </p>
+                <label className={`mb-1 block text-xs font-medium ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
+                    函数功能描述
+                </label>
+                <textarea
+                  value={draftDescription}
+                  onChange={(e) => setDraftDescription(e.target.value)}
+                  rows={4}
+                  className={`w-full resize-none rounded-lg border px-3 py-2 text-sm leading-relaxed outline-none transition-colors ${
+                    theme === 'dark'
+                      ? 'border-slate-700 bg-slate-950 text-slate-200 placeholder:text-slate-500 focus:border-blue-500'
+                      : 'border-gray-300 bg-white text-gray-700 placeholder:text-gray-400 focus:border-blue-500'
+                  }`}
+                  placeholder="请输入函数功能描述"
+                />
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCancelDescription}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      theme === 'dark'
+                        ? 'border border-slate-700 text-slate-300 hover:bg-slate-800'
+                        : 'border border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveDescription}
+                    disabled={!onUpdateNodeDescription || draftDescription.trim() === (selectedNode.description || '').trim()}
+                    className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    保存
+                  </button>
+                </div>
                 </div>
             </motion.div>
             )}

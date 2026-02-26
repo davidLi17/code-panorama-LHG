@@ -7,9 +7,12 @@ import { motion, AnimatePresence } from 'motion/react';
 interface AgentLogProps {
   logs: LogEntry[];
   status?: string;
+  theme?: 'light' | 'dark';
+  hideHeader?: boolean;
+  embedded?: boolean;
 }
 
-export function AgentLog({ logs, status }: AgentLogProps) {
+export function AgentLog({ logs, status, theme = 'dark', hideHeader = false, embedded = false }: AgentLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
 
@@ -17,7 +20,7 @@ export function AgentLog({ logs, status }: AgentLogProps) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [logs, expandedLogs]);
+  }, [logs]);
 
   const toggleExpand = (id: string) => {
     setExpandedLogs(prev => ({
@@ -28,96 +31,184 @@ export function AgentLog({ logs, status }: AgentLogProps) {
 
   if (logs.length === 0) return null;
 
-  return (
-    <div className="w-full mt-6 bg-slate-950/80 backdrop-blur-md rounded-xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col flex-1 min-h-[300px] relative">
-      {/* Header */}
-      <div className="px-4 py-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2">
-            <div className="p-1 bg-slate-800 rounded">
-                <Terminal className="w-3.5 h-3.5 text-slate-400" />
-            </div>
-            <span className="text-xs font-mono font-bold text-slate-300 tracking-wide">AGENT_TERMINAL</span>
+  const isRunning = status && !['idle', 'complete', 'error'].includes(status);
+  const isDark = theme === 'dark';
+
+  const content = (
+    <>
+      {!hideHeader && (
+        <div className={clsx(
+          "px-4 py-3 border-b flex items-center justify-between shrink-0",
+          isDark ? "bg-slate-900/90 border-slate-800" : "bg-gray-50 border-gray-200"
+        )}>
+          <div className="flex items-center gap-2">
+              <div className={clsx("p-1 rounded", isDark ? "bg-slate-800" : "bg-white border border-gray-200")}>
+                  <Terminal className={clsx("w-3.5 h-3.5", isDark ? "text-slate-400" : "text-slate-500")} />
+              </div>
+              <span className={clsx("text-xs font-mono font-bold tracking-wide", isDark ? "text-slate-300" : "text-slate-700")}>AGENT_TERMINAL</span>
+          </div>
+          {status && (
+              <span className={clsx(
+                  "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border",
+                  isRunning ? "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse" :
+                  status === 'complete' ? "bg-green-500/10 text-green-400 border-green-500/20" :
+                  status === 'error' ? "bg-red-500/10 text-red-400 border-red-500/20" :
+                  "bg-slate-800 text-slate-400 border-slate-700"
+              )}>
+                  {status}
+              </span>
+          )}
         </div>
-        {status && (
-            <span className={clsx(
-                "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider border",
-                status === 'analyzing' ? "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse" :
-                status === 'complete' ? "bg-green-500/10 text-green-400 border-green-500/20" :
-                status === 'error' ? "bg-red-500/10 text-red-400 border-red-500/20" :
-                "bg-slate-800 text-slate-400 border-slate-700"
-            )}>
-                {status}
-            </span>
-        )}
-      </div>
+      )}
       
       {/* Logs Area */}
       <div 
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-3 font-mono text-xs scrollbar-custom bg-slate-950/50"
+        className={clsx(
+          "flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 font-mono text-xs scrollbar-custom",
+          embedded
+            ? (isDark ? "bg-transparent" : "bg-transparent")
+            : (isDark ? "bg-slate-950/50" : "bg-white")
+        )}
       >
         <AnimatePresence initial={false}>
-          {logs.map((log) => (
+          {logs.map((log) => {
+            const hasExpandable = Boolean(log.aiTrace) || Boolean(log.details && log.details.length > 0);
+            const isDrillLog = log.message.includes('【下钻】');
+            const isFailureLog = log.message.includes('失败');
+            const displayMessage = log.message.replace(/^【下钻】/, '');
+            return (
             <motion.div
               key={log.id}
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               className={clsx(
                 "flex flex-col border-l-2 pl-3 py-1",
+                isFailureLog ? "text-red-400 border-red-500/60" :
+                isDrillLog
+                  ? (isDark ? "text-violet-400 border-violet-500/70" : "text-violet-700 border-violet-600/70")
+                  :
                 log.type === 'error' ? "text-red-400 border-red-500/50 bg-red-500/5 rounded-r" :
                 log.type === 'success' ? "text-green-400 border-green-500/50" :
-                log.type === 'thinking' ? "text-purple-400 border-purple-500/50" :
-                "text-slate-300 border-slate-700"
+                log.type === 'thinking' ? "" :
+                isDark ? "text-slate-300 border-slate-700" : "text-slate-700 border-gray-300"
               )}
+              style={isFailureLog
+                ? { borderLeftColor: '#ef4444' }
+                : isDrillLog
+                ? { borderLeftColor: '#7c3aed' }
+                : (log.type === 'thinking' ? { color: '#3C81F6', borderLeftColor: '#3C81F6' } : undefined)}
             >
-              <div className="flex items-start gap-2">
+              {hasExpandable ? (
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(log.id)}
+                  className={clsx(
+                    "w-full text-left flex items-start gap-2 rounded px-1 py-0.5 transition-colors",
+                    isDark ? "hover:bg-white/5" : "hover:bg-gray-100/60"
+                  )}
+                >
                   <span className="mt-0.5 shrink-0 opacity-80">
+                    {isFailureLog && <AlertCircle className="w-3.5 h-3.5" />}
                     {log.type === 'error' && <AlertCircle className="w-3.5 h-3.5" />}
                     {log.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5" />}
                     {log.type === 'thinking' && <BrainCircuit className="w-3.5 h-3.5 animate-pulse" />}
-                    {log.type === 'info' && <span className="w-3.5 h-3.5 block rounded-full bg-blue-500/20 border border-blue-500/50 text-[9px] flex items-center justify-center text-blue-400">i</span>}
+                    {!isFailureLog && log.type === 'info' && <span className={clsx(
+                      "w-3.5 h-3.5 block rounded-full border text-[9px] flex items-center justify-center",
+                      isDark ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-blue-50 border-blue-200 text-blue-600"
+                    )}>i</span>}
                   </span>
-                  <span className="leading-relaxed opacity-90 flex-1">{log.message}</span>
-                  
-                  {log.details && log.details.length > 0 && (
-                    <button 
-                        onClick={() => toggleExpand(log.id)}
-                        className="p-0.5 hover:bg-white/10 rounded transition-colors"
-                    >
-                        {expandedLogs[log.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                    </button>
-                  )}
-              </div>
+                  <span className="leading-relaxed opacity-90 flex-1">{displayMessage}</span>
+                  <span className={clsx("p-0.5 rounded transition-colors", isDark ? "text-slate-400" : "text-slate-500")}>
+                    {expandedLogs[log.id] ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </span>
+                </button>
+              ) : (
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 opacity-80">
+                    {isFailureLog && <AlertCircle className="w-3.5 h-3.5" />}
+                    {log.type === 'error' && <AlertCircle className="w-3.5 h-3.5" />}
+                    {log.type === 'success' && <CheckCircle2 className="w-3.5 h-3.5" />}
+                    {log.type === 'thinking' && <BrainCircuit className="w-3.5 h-3.5 animate-pulse" />}
+                    {!isFailureLog && log.type === 'info' && <span className={clsx(
+                      "w-3.5 h-3.5 block rounded-full border text-[9px] flex items-center justify-center",
+                      isDark ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-blue-50 border-blue-200 text-blue-600"
+                    )}>i</span>}
+                  </span>
+                  <span className="leading-relaxed opacity-90 flex-1">{displayMessage}</span>
+                </div>
+              )}
 
               {/* Expandable Details Panel */}
               <AnimatePresence>
-                  {log.details && expandedLogs[log.id] && (
+                  {expandedLogs[log.id] && (log.details || log.aiTrace) && (
                       <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         className="overflow-hidden"
                       >
-                          <div className="mt-2 ml-5 p-2 bg-black/20 rounded border border-white/5 max-h-60 overflow-y-auto scrollbar-custom">
-                              <div className="text-[10px] text-slate-500 mb-1.5 uppercase tracking-wider font-bold">文件列表 ({log.details.length})</div>
-                              <div className="space-y-1">
-                                  {log.details.map((file, idx) => (
-                                      <div key={idx} className="flex items-center gap-1.5 text-slate-400 hover:text-slate-300 transition-colors">
-                                          <FileText size={10} className="opacity-50" />
-                                          <span className="truncate">{file}</span>
-                                      </div>
-                                  ))}
-                              </div>
+                          <div className="mt-2 ml-5 space-y-2">
+                              {log.aiTrace && (
+                                <div className={clsx(
+                                  "p-2 rounded border max-h-80 overflow-y-auto overflow-x-hidden scrollbar-custom",
+                                  isDark ? "bg-black/20 border-white/5" : "bg-gray-50 border-gray-200"
+                                )}>
+                                  <div className="text-[10px] text-cyan-400 mb-1.5 uppercase tracking-wider font-bold">
+                                    AI 请求 / 响应{log.aiTrace.label ? ` · ${log.aiTrace.label}` : ''}
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div>
+                                      <div className={clsx("text-[10px] mb-1", isDark ? "text-slate-500" : "text-slate-500")}>Request</div>
+                                      <pre className={clsx(
+                                        "text-[10px] leading-relaxed whitespace-pre-wrap break-words rounded p-2 border",
+                                        isDark ? "text-slate-300 bg-black/20 border-white/5" : "text-slate-700 bg-white border-gray-200"
+                                      )}>
+                                        {log.aiTrace.request}
+                                      </pre>
+                                    </div>
+                                    <div>
+                                      <div className={clsx("text-[10px] mb-1", isDark ? "text-slate-500" : "text-slate-500")}>Response</div>
+                                      <pre className={clsx(
+                                        "text-[10px] leading-relaxed whitespace-pre-wrap break-words rounded p-2 border",
+                                        isDark ? "text-slate-300 bg-black/20 border-white/5" : "text-slate-700 bg-white border-gray-200"
+                                      )}>
+                                        {log.aiTrace.response}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {log.details && (
+                                <div className={clsx(
+                                  "p-2 rounded border max-h-60 overflow-y-auto overflow-x-hidden scrollbar-custom",
+                                  isDark ? "bg-black/20 border-white/5" : "bg-gray-50 border-gray-200"
+                                )}>
+                                  <div className={clsx("text-[10px] mb-1.5 uppercase tracking-wider font-bold", isDark ? "text-slate-500" : "text-slate-500")}>文件列表 ({log.details.length})</div>
+                                  <div className="space-y-1">
+                                      {log.details.map((file, idx) => (
+                                          <div key={idx} className={clsx(
+                                            "flex items-center gap-1.5 transition-colors",
+                                            isDark ? "text-slate-400 hover:text-slate-300" : "text-slate-500 hover:text-slate-700"
+                                          )}>
+                                              <FileText size={10} className="opacity-50" />
+                                              <span className="truncate">{file}</span>
+                                          </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
                           </div>
                       </motion.div>
                   )}
               </AnimatePresence>
             </motion.div>
-          ))}
+          )})}
         </AnimatePresence>
         
         {/* Cursor Effect */}
-        {status === 'analyzing' && (
+        {isRunning && (
             <motion.div 
                 animate={{ opacity: [0, 1, 0] }} 
                 transition={{ repeat: Infinity, duration: 0.8 }}
@@ -125,6 +216,19 @@ export function AgentLog({ logs, status }: AgentLogProps) {
             />
         )}
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="w-full h-full min-h-0 flex flex-col">{content}</div>;
+  }
+
+  return (
+    <div className={clsx(
+      "w-full h-full backdrop-blur-md rounded-xl shadow-2xl border overflow-hidden flex flex-col min-h-[240px] relative",
+      isDark ? "bg-slate-950/80 border-slate-800" : "bg-white/90 border-gray-200 shadow-slate-200/70"
+    )}>
+      {content}
     </div>
   );
 }

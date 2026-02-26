@@ -26,3 +26,19 @@ body {
   width: 100%;
   min-height: 100%;
 }
+
+.source-target-line-dark {
+  background: rgba(6, 182, 212, 0.12);
+}
+
+.source-target-line-light {
+  background: rgba(8, 145, 178, 0.12);
+}
+
+.source-target-gutter-dark {
+  border-left: 2px solid #06b6d4;
+}
+
+.source-target-gutter-light {
+  border-left: 2px solid #0891b2;
+}
