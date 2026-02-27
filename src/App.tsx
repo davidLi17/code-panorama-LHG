@@ -32,6 +32,9 @@ import {
   Settings,
   Sun,
   Moon,
+  Trash2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -308,8 +311,10 @@ type HistoryListItem = {
 
 type AppSettings = {
   theme: 'light' | 'dark';
+  githubToken: string;
   llmBaseUrl: string;
   llmModel: string;
+  llmApiKey: string;
   maxDrillDepth: number;
   maxChildCallsPerFunction: number;
 };
@@ -319,6 +324,7 @@ const PANEL_MIN_WIDTH: Record<PanelKey, number> = {
   source: 18,
   panorama: 18,
 };
+const HISTORY_PAGE_SIZE = 10;
 
 function buildFileTree(paths: string[]): TreeNode[] {
   type InternalNode = TreeNode & { childMap: Map<string, InternalNode> };
@@ -395,8 +401,10 @@ function App() {
     if (typeof window === 'undefined') {
       return {
         theme: 'dark',
+        githubToken: '',
         llmBaseUrl: '',
         llmModel: '',
+        llmApiKey: '',
         maxDrillDepth: 2,
         maxChildCallsPerFunction: 10,
       };
@@ -407,8 +415,10 @@ function App() {
         const fallbackTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
         return {
           theme: fallbackTheme === 'light' || fallbackTheme === 'dark' ? fallbackTheme : 'dark',
+          githubToken: '',
           llmBaseUrl: '',
           llmModel: '',
+          llmApiKey: '',
           maxDrillDepth: 2,
           maxChildCallsPerFunction: 10,
         };
@@ -416,16 +426,20 @@ function App() {
       const parsed = JSON.parse(raw);
       return {
         theme: parsed?.theme === 'light' ? 'light' : 'dark',
+        githubToken: String(parsed?.githubToken || ''),
         llmBaseUrl: String(parsed?.llmBaseUrl || ''),
         llmModel: String(parsed?.llmModel || ''),
+        llmApiKey: String(parsed?.llmApiKey || ''),
         maxDrillDepth: Math.max(1, Math.min(5, Number(parsed?.maxDrillDepth || 2) || 2)),
         maxChildCallsPerFunction: Math.max(5, Math.min(20, Number(parsed?.maxChildCallsPerFunction || 10) || 10)),
       };
     } catch {
       return {
         theme: 'dark',
+        githubToken: '',
         llmBaseUrl: '',
         llmModel: '',
+        llmApiKey: '',
         maxDrillDepth: 2,
         maxChildCallsPerFunction: 10,
       };
@@ -433,19 +447,23 @@ function App() {
   });
   const theme = settings.theme;
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showLlmApiKey, setShowLlmApiKey] = useState(false);
   const settingsSnapshotRef = useRef<AppSettings | null>(null);
   const openSettings = () => {
     settingsSnapshotRef.current = { ...settings };
+    setShowLlmApiKey(false);
     setIsSettingsOpen(true);
   };
   const cancelSettings = () => {
     if (settingsSnapshotRef.current) {
       setSettings(settingsSnapshotRef.current);
     }
+    setShowLlmApiKey(false);
     setIsSettingsOpen(false);
   };
   const saveSettings = () => {
     settingsSnapshotRef.current = null;
+    setShowLlmApiKey(false);
     setIsSettingsOpen(false);
   };
   const {
@@ -472,6 +490,7 @@ function App() {
   } = useGithubAgent({
     llmBaseUrl: settings.llmBaseUrl,
     llmModel: settings.llmModel,
+    llmApiKey: settings.llmApiKey,
     maxDrillDepth: settings.maxDrillDepth,
     maxChildCallsPerFunction: settings.maxChildCallsPerFunction,
   });
@@ -512,6 +531,8 @@ function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
+  const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
   const autoSaveStateRef = useRef<{ armed: boolean; lastSavedFingerprint: string }>({ armed: false, lastSavedFingerprint: '' });
   const isAnalyzing = !['idle', 'complete', 'error'].includes(status);
   const displayRepoUrl = graphData?.repoUrl || repoUrl || '';
@@ -527,6 +548,11 @@ function App() {
   const shouldShowReanalyzeModulesButton = moduleClassificationFailed
     || (((graphData?.nodes?.length || 0) > 0) && ((graphData?.modules?.length || 0) === 0));
   const isDisplayRepoUrlHttp = /^https?:\/\//i.test(displayRepoUrl);
+  const totalHistoryPages = Math.max(1, Math.ceil(historyItems.length / HISTORY_PAGE_SIZE));
+  const pagedHistoryItems = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return historyItems.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [historyItems, historyPage]);
 
   const refreshHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -632,6 +658,10 @@ function App() {
   }, [refreshHistory]);
 
   useEffect(() => {
+    setHistoryPage((prev) => Math.min(Math.max(1, prev), totalHistoryPages));
+  }, [totalHistoryPages]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && key === 'f' && view === 'result' && isPanelVisible.source) {
@@ -657,7 +687,7 @@ function App() {
     setSourceError('');
     setLastExportFingerprint(null);
     autoSaveStateRef.current.armed = true;
-    analyzeRepo(url, undefined, sourceType);
+    analyzeRepo(url, sourceType === 'github' ? (settings.githubToken.trim() || undefined) : undefined, sourceType);
   };
 
   const getCurrentExportFingerprint = useCallback(() => {
@@ -829,6 +859,25 @@ function App() {
       setLoadingHistoryId(null);
     }
   }, [clearFileCache, hydrateImportedContext, loadingHistoryId, setImportedAiUsageStats]);
+
+  const handleDeleteHistory = useCallback(async (id: string) => {
+    if (!id || loadingHistoryId || deletingHistoryId) return;
+    const ok = window.confirm('确认删除这个历史工程吗？删除后不可恢复。');
+    if (!ok) return;
+    setDeletingHistoryId(id);
+    try {
+      const res = await fetch(`/api/history/item?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || '删除历史工程失败');
+      }
+      await refreshHistory();
+    } catch (error: any) {
+      alert(error?.message || '删除历史工程失败');
+    } finally {
+      setDeletingHistoryId(null);
+    }
+  }, [deletingHistoryId, loadingHistoryId, refreshHistory]);
 
   useEffect(() => {
     if (status !== 'complete') return;
@@ -1100,6 +1149,32 @@ function App() {
           {/* AI Config */}
           <section>
             <div className={clsx('text-xs font-semibold uppercase tracking-wider mb-3', theme === 'dark' ? 'text-stone-400' : 'text-stone-500')}>
+              GitHub 配置
+            </div>
+            <div className={clsx(
+              'rounded-xl border p-4 space-y-4',
+              theme === 'dark' ? 'border-stone-700 bg-stone-900/50' : 'border-stone-200 bg-stone-50/50'
+            )}>
+              <label className="block">
+                <div className={clsx('text-xs font-medium mb-1.5', theme === 'dark' ? 'text-stone-300' : 'text-stone-600')}>GitHub Token</div>
+                <input
+                  type="password"
+                  value={settings.githubToken}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, githubToken: e.target.value }))}
+                  placeholder="用于私有仓库访问与提高 API 额度"
+                  className={clsx(
+                    'w-full rounded-lg border px-3 py-2 text-xs outline-none transition-colors focus:ring-1',
+                    theme === 'dark'
+                      ? 'border-stone-600 bg-stone-800 text-stone-200 placeholder:text-stone-500 focus:border-amber-500/50 focus:ring-amber-500/30'
+                      : 'border-stone-300 bg-white text-stone-700 placeholder:text-stone-400 focus:border-amber-400 focus:ring-amber-200'
+                  )}
+                />
+              </label>
+            </div>
+          </section>
+
+          <section>
+            <div className={clsx('text-xs font-semibold uppercase tracking-wider mb-3', theme === 'dark' ? 'text-stone-400' : 'text-stone-500')}>
               AI 模型配置
             </div>
             <div className={clsx(
@@ -1135,6 +1210,34 @@ function App() {
                       : 'border-stone-300 bg-white text-stone-700 placeholder:text-stone-400 focus:border-amber-400 focus:ring-amber-200'
                   )}
                 />
+              </label>
+              <label className="block">
+                <div className={clsx('text-xs font-medium mb-1.5', theme === 'dark' ? 'text-stone-300' : 'text-stone-600')}>API Key</div>
+                <div className="relative">
+                  <input
+                    type={showLlmApiKey ? 'text' : 'password'}
+                    value={settings.llmApiKey}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, llmApiKey: e.target.value }))}
+                    placeholder="留空使用服务端默认值"
+                    className={clsx(
+                      'w-full rounded-lg border px-3 py-2 pr-9 text-xs outline-none transition-colors focus:ring-1',
+                      theme === 'dark'
+                        ? 'border-stone-600 bg-stone-800 text-stone-200 placeholder:text-stone-500 focus:border-amber-500/50 focus:ring-amber-500/30'
+                        : 'border-stone-300 bg-white text-stone-700 placeholder:text-stone-400 focus:border-amber-400 focus:ring-amber-200'
+                    )}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLlmApiKey((prev) => !prev)}
+                    className={clsx(
+                      'absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 transition-colors',
+                      theme === 'dark' ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-700'
+                    )}
+                    title={showLlmApiKey ? '隐藏 API Key' : '显示 API Key'}
+                  >
+                    {showLlmApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
               </label>
             </div>
           </section>
@@ -1410,12 +1513,14 @@ function App() {
                 </div>
               ) : historyItems.length === 0 ? (
                 <div className={clsx('rounded-lg border px-3 py-6 text-center text-xs', theme === 'dark' ? 'border-stone-800 text-stone-500' : 'border-stone-200 text-stone-500')}>
-                  暂无历史工程。完成一次分析后会自动保存到 `analysis-history/` 目录。
+                  暂无历史工程。完成一次分析后会自动保存到项目外的历史目录。
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {historyItems.map((item) => {
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {pagedHistoryItems.map((item) => {
                     const loading = loadingHistoryId === item.id;
+                    const deleting = deletingHistoryId === item.id;
                     const techTags = (item.techStack || []).slice(0, 4);
                     const langColorMap: Record<string, { dark: string; light: string }> = {
                       TypeScript: { dark: 'text-blue-300 bg-blue-500/15', light: 'text-blue-700 bg-blue-50' },
@@ -1435,18 +1540,21 @@ function App() {
                     const langKey = item.language || '';
                     const langColors = langColorMap[langKey] || { dark: 'text-stone-300 bg-stone-700/50', light: 'text-stone-600 bg-stone-100' };
                     return (
-                      <button
+                      <div
                         key={item.id}
-                        type="button"
-                        onClick={() => { void handleLoadHistory(item.id); }}
-                        disabled={Boolean(loadingHistoryId)}
                         className={clsx(
-                          'group relative text-left rounded-xl border p-4 transition-all duration-200 disabled:opacity-60',
+                          'group relative rounded-xl border p-4 transition-all duration-200',
                           theme === 'dark'
                             ? 'border-stone-700/60 bg-stone-800/40 hover:bg-stone-800/80 hover:border-stone-600 hover:shadow-lg hover:shadow-black/20 hover:-translate-y-0.5'
                             : 'border-stone-200 bg-white hover:border-amber-300 hover:shadow-md hover:shadow-amber-100/40 hover:-translate-y-0.5'
                         )}
                       >
+                        <button
+                          type="button"
+                          onClick={() => { void handleLoadHistory(item.id); }}
+                          disabled={Boolean(loadingHistoryId || deletingHistoryId)}
+                          className="w-full pr-10 text-left disabled:opacity-60"
+                        >
                         <div className="flex items-center justify-between gap-2 mb-2.5">
                           <div className={clsx('text-sm font-semibold truncate', theme === 'dark' ? 'text-stone-100 group-hover:text-white' : 'text-stone-800')} title={item.name}>
                             {item.name}
@@ -1492,15 +1600,64 @@ function App() {
                             <Clock3 size={10} />
                             {new Date(item.createdAt).toLocaleString()}
                           </div>
-                          {loading && (
+                          {(loading || deleting) && (
                             <span className={clsx('text-[11px] animate-pulse', theme === 'dark' ? 'text-amber-400' : 'text-amber-600')}>
-                              加载中...
+                              {loading ? '加载中...' : '删除中...'}
                             </span>
                           )}
                         </div>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { void handleDeleteHistory(item.id); }}
+                          disabled={Boolean(loadingHistoryId || deletingHistoryId)}
+                          className={clsx(
+                            'absolute bottom-3 right-3 inline-flex items-center justify-center rounded-md border p-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                            theme === 'dark'
+                              ? 'border-stone-700 text-stone-400 hover:text-rose-300 hover:border-rose-600/60 hover:bg-rose-500/10'
+                              : 'border-stone-200 text-stone-500 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50'
+                          )}
+                          title="删除历史工程"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     );
                   })}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className={clsx('text-xs', theme === 'dark' ? 'text-stone-400' : 'text-stone-500')}>
+                      第 {historyPage} / {totalHistoryPages} 页
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((prev) => Math.max(1, prev - 1))}
+                        disabled={historyPage <= 1}
+                        className={clsx(
+                          'text-xs rounded-md border px-2.5 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                          theme === 'dark'
+                            ? 'border-stone-700 text-stone-300 hover:bg-stone-800'
+                            : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                        )}
+                      >
+                        上一页
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHistoryPage((prev) => Math.min(totalHistoryPages, prev + 1))}
+                        disabled={historyPage >= totalHistoryPages}
+                        className={clsx(
+                          'text-xs rounded-md border px-2.5 py-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                          theme === 'dark'
+                            ? 'border-stone-700 text-stone-300 hover:bg-stone-800'
+                            : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                        )}
+                      >
+                        下一页
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

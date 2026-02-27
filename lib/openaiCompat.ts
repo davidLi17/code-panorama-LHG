@@ -12,19 +12,20 @@ export const llmModel = process.env.LLM_MODEL || "gemini-3-flash-preview";
 
 const clientMap = new Map<string, OpenAI>();
 
-export function getLlmClient(options?: { baseUrl?: string }) {
-  if (!llmApiKey) {
+export function getLlmClient(options?: { baseUrl?: string; apiKey?: string }) {
+  const resolvedApiKey = String(options?.apiKey || llmApiKey || "").trim();
+  if (!resolvedApiKey) {
     throw new Error("LLM_API_KEY is not set.");
   }
 
   const resolvedBaseUrl = normalizeBaseUrl(options?.baseUrl || llmBaseUrl);
-  const cacheKey = resolvedBaseUrl || "__default__";
+  const cacheKey = `${resolvedBaseUrl || "__default__"}::${resolvedApiKey}`;
   const hit = clientMap.get(cacheKey);
   if (hit) return hit;
 
   const client = new OpenAI({
       baseURL: resolvedBaseUrl,
-      apiKey: llmApiKey,
+      apiKey: resolvedApiKey,
       timeout: 120000,
   });
 

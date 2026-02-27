@@ -175,11 +175,6 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
     setSelectedNode((prev) => (prev ? { ...prev, description: nextDescription } : prev));
   };
 
-  const handleCancelDescription = () => {
-    if (!selectedNode) return;
-    setDraftDescription(selectedNode.description || '');
-  };
-
   if (!data) return null;
 
   return (
@@ -221,6 +216,8 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
                         ? 'bg-stone-900 border-stone-700 shadow-black/50' 
                         : 'bg-white border-stone-200'
                 }`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 <div className={`px-4 py-3 border-b flex justify-between items-start ${
                     theme === 'dark' ? 'bg-stone-900 border-stone-800' : 'bg-stone-50 border-stone-100'
@@ -274,14 +271,17 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
                 <div className="mt-3 flex justify-end gap-2">
                   <button
                     type="button"
-                    onClick={handleCancelDescription}
+                    onClick={() => {
+                      setSelectedNode(null);
+                      setDraftDescription('');
+                    }}
                     className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                       theme === 'dark'
                         ? 'border border-stone-700 text-stone-300 hover:bg-stone-800'
                         : 'border border-stone-300 text-stone-600 hover:bg-stone-100'
                     }`}
                   >
-                    取消
+                    关闭
                   </button>
                   <button
                     type="button"

@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const callId = createAiCallId();
   try {
-    const { prompt, model, temperature, baseUrl } = await request.json();
+    const { prompt, model, temperature, baseUrl, apiKey } = await request.json();
 
     if (!prompt || typeof prompt !== "string") {
       return NextResponse.json({ error: "Invalid prompt" }, { status: 400 });
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       requestBody,
     });
 
-    const client = getLlmClient({ baseUrl: resolvedBaseUrl });
+    const client = getLlmClient({ baseUrl: resolvedBaseUrl, apiKey: typeof apiKey === "string" ? apiKey : undefined });
     const response = await client.chat.completions.create(requestBody as any);
 
     const text = response.choices?.[0]?.message?.content || "";

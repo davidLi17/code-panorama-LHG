@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -26,7 +27,21 @@ export type HistoryListItem = Omit<HistoryRecord, "markdown" | "graphData" | "lo
   mdFile: string;
 };
 
-const HISTORY_DIR = path.join(process.cwd(), "analysis-history");
+function expandHomeDir(input: string) {
+  const raw = String(input || "").trim();
+  if (!raw) return raw;
+  if (raw === "~") return os.homedir();
+  if (raw.startsWith("~/") || raw.startsWith("~\\")) {
+    return path.join(os.homedir(), raw.slice(2));
+  }
+  return raw;
+}
+
+const envHistoryDirRaw = String(process.env.HISTORY_DIR || "").trim();
+const envHistoryDir = expandHomeDir(envHistoryDirRaw);
+const HISTORY_DIR = envHistoryDir
+  ? (path.isAbsolute(envHistoryDir) ? envHistoryDir : path.resolve(process.cwd(), envHistoryDir))
+  : path.join(os.homedir(), ".code-panorama-history");
 
 function safeFileName(input: string) {
   return String(input || "project")
@@ -108,3 +123,26 @@ export async function readHistoryRecord(id: string) {
   return parsed as HistoryRecord & { mdFile?: string };
 }
 
+export async function deleteHistoryRecord(id: string) {
+  await ensureHistoryDir();
+  const cleanId = String(id || "").trim();
+  if (!cleanId) {
+    throw new Error("id is required");
+  }
+  const recordPath = toRecordPath(cleanId);
+  const raw = await fs.readFile(recordPath, "utf8");
+  const parsed = JSON.parse(raw) as { mdFile?: string };
+  const mdFile = String(parsed?.mdFile || "").trim();
+
+  if (mdFile) {
+    try {
+      await fs.unlink(path.join(HISTORY_DIR, mdFile));
+    } catch (error: any) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  await fs.unlink(recordPath);
+}

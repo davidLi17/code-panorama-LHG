@@ -8,6 +8,7 @@ type SourceType = 'github' | 'local';
 type AgentSettings = {
   llmBaseUrl?: string;
   llmModel?: string;
+  llmApiKey?: string;
   maxDrillDepth?: number;
   maxChildCallsPerFunction?: number;
 };
@@ -519,6 +520,7 @@ export function useGithubAgent(settings?: AgentSettings) {
   const activeRunIdRef = useRef(0);
   const llmBaseUrl = String(settings?.llmBaseUrl || '').trim();
   const llmModel = String(settings?.llmModel || '').trim();
+  const llmApiKey = String(settings?.llmApiKey || '').trim();
   const maxDrillDepth = Math.max(1, Math.min(8, Math.floor(Number(settings?.maxDrillDepth || DEFAULT_MAX_DRILL_DEPTH))));
   const maxChildCallsPerFunction = Math.max(1, Math.min(30, Math.floor(Number(settings?.maxChildCallsPerFunction || MAX_CHILD_CALLS_PER_FUNCTION))));
 
@@ -619,6 +621,7 @@ export function useGithubAgent(settings?: AgentSettings) {
         prompt,
         ...(llmModel ? { model: llmModel } : {}),
         ...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
+        ...(llmApiKey ? { apiKey: llmApiKey } : {}),
       });
       if (stopRequestedRef.current) {
         throw new Error('__ANALYSIS_STOPPED__');
@@ -934,7 +937,7 @@ export function useGithubAgent(settings?: AgentSettings) {
       };
       return { ...prev, nodes: nextNodes };
     });
-  }, [updateGraph]);
+  }, [updateGraph, requestJsonFromLlm]);
 
   const hydrateImportedContext = useCallback((importedData: GraphData, markdown?: string) => {
     const url = importedData.repoUrl || '';
@@ -991,7 +994,7 @@ export function useGithubAgent(settings?: AgentSettings) {
     setStatus('complete');
     setModuleClassificationFailed(false);
     setIsReanalyzingModules(false);
-  }, []);
+  }, [requestJsonFromLlm]);
 
   const setImportedAiUsageStats = useCallback((stats?: Partial<AiUsageStats>) => {
     setAiUsageStats({
@@ -1709,7 +1712,7 @@ ${JSON.stringify(graph.nodes.map(n => ({ id: n.id, label: n.label, file: n.file,
 
     setModuleClassificationFailed(false);
     addLog('模块划分完成（AI 基于完整调用链研判）', 'success');
-  }, [updateGraph]);
+  }, [updateGraph, requestJsonFromLlm]);
 
   const reanalyzeModules = useCallback(async () => {
     const panorama = panoramaRef.current;
@@ -1784,7 +1787,7 @@ ${JSON.stringify(params.children)}
       mapped[fn] = moduleId;
     });
     return mapped;
-  }, []);
+  }, [requestJsonFromLlm]);
 
   const manualDrillNode = useCallback(async (nodeId: string) => {
     const currentPanorama = panoramaRef.current;
@@ -2637,7 +2640,7 @@ ${verifyContent}
       addLog(`错误: ${errorMessage}`, 'error');
       setStatus('error');
     }
-  }, [updateGraph, updatePanorama, classifyModulesAfterAnalysis, clearFileCache, apiBySource, sourcePayload, maxDrillDepth, maxChildCallsPerFunction]);
+  }, [updateGraph, updatePanorama, classifyModulesAfterAnalysis, clearFileCache, apiBySource, sourcePayload, maxDrillDepth, maxChildCallsPerFunction, requestJsonFromLlm]);
 
   return {
     status,
