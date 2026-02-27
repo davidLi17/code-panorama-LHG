@@ -8,6 +8,7 @@ interface CustomNodeData extends Record<string, unknown> {
   label: string;
   type: 'function' | 'class' | 'file' | 'module';
   file: string;
+  line?: number | string;
   importance: 'high' | 'medium' | 'low';
   description: string;
   module: string;
@@ -29,6 +30,10 @@ const CustomNode = ({ data, id }: NodeProps<CustomNodeType>) => {
   const headerColor = data.color || (isHighImportance ? '#3b82f6' : '#64748b'); // Blue or Slate
   const isDark = data.theme === 'dark';
   const isManualDrilling = data.isLeaf && data.callStatus === 'analyzing';
+  const rawLine = data.line;
+  const parsedLine = typeof rawLine === 'number' ? rawLine : Number(rawLine);
+  const lineSuffix = Number.isFinite(parsedLine) && parsedLine > 0 ? `(L${Math.floor(parsedLine)})` : '';
+  const fileName = data.file.split('/').pop() || data.file;
   
   return (
     <div 
@@ -50,8 +55,8 @@ const CustomNode = ({ data, id }: NodeProps<CustomNodeType>) => {
           className="px-3 py-1.5 text-xs font-mono text-white flex items-center justify-between"
           style={{ backgroundColor: headerColor }}
         >
-          <span className="truncate max-w-[180px]" title={data.file}>
-            {data.file.split('/').pop()}
+          <span className="truncate max-w-[180px]" title={`${data.file}${lineSuffix}`}>
+            {fileName}{lineSuffix}
           </span>
           {data.module && (
             <span className="opacity-80 text-[10px] bg-black/20 px-1.5 rounded">

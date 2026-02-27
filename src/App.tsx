@@ -39,6 +39,15 @@ const AGENT_LOG_SECTION_TITLE = '## 5. Agent 状态日志';
 const VISUALIZATION_SECTION_TITLE = '## 6. 全景图展示数据';
 const AI_USAGE_SECTION_TITLE = '## 7. AI 调用统计';
 
+function toLineNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value);
+  if (typeof value === 'string') {
+    const n = Number(value.trim());
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return undefined;
+}
+
 function parseProjectPanoramaMarkdown(content: string): GraphData | null {
   const jsonBlockMatch = content.match(/##\s*4\.\s*函数调用链（JSON）[\s\S]*?```json\s*([\s\S]*?)```/i)
     || content.match(/```json\s*([\s\S]*?)```/i);
@@ -89,7 +98,7 @@ function parseProjectPanoramaMarkdown(content: string): GraphData | null {
       label: String(n.label || record?.functionName || n.id),
       type: 'function' as const,
       file,
-      line: typeof n.line === 'number' ? n.line : (typeof record?.line === 'number' ? record.line : undefined),
+      line: toLineNumber(n.line) ?? toLineNumber(record?.line),
       importance: 'medium' as const,
       description: importedDescription || (record?.status ? `导入节点（状态: ${record.status}，层级: ${record.depth ?? '-'})` : '导入节点'),
       module: '',
@@ -632,16 +641,28 @@ function App() {
   const allFiles = useMemo(() => graphData?.allFiles || [], [graphData?.allFiles]);
   const fileTree = useMemo(() => buildFileTree(allFiles), [allFiles]);
 
-  const openFileInSource = useCallback(async (filePath: string, line?: number) => {
+  const locateSourceLine = useCallback((line?: unknown) => {
+    const lineNumber = toLineNumber(line);
+    if (!lineNumber || !sourceEditorRef.current) return;
+    requestAnimationFrame(() => {
+      if (!sourceEditorRef.current) return;
+      sourceEditorRef.current.revealLineInCenter(lineNumber);
+      sourceEditorRef.current.setPosition({ lineNumber, column: 1 });
+    });
+  }, []);
+
+  const openFileInSource = useCallback(async (filePath: string, line?: unknown) => {
     if (!filePath) return;
+    const lineNumber = toLineNumber(line);
     setSelectedFile(filePath);
-    setTargetLine(line);
+    setTargetLine(lineNumber);
     setExpandedFolders((prev) => expandParentFolders(filePath, prev));
     setSourceLoading(true);
     setSourceError('');
     try {
       const content = await loadFileContent(filePath);
       setSourceCode(content || '');
+      locateSourceLine(lineNumber);
       if (!content) {
         setSourceError('当前来源不支持读取源码内容，或该文件内容为空。');
       }
@@ -651,12 +672,13 @@ function App() {
     } finally {
       setSourceLoading(false);
     }
-  }, [loadFileContent]);
+  }, [loadFileContent, locateSourceLine]);
 
   const handleGraphNodeSelect = useCallback((node: GraphNode) => {
-    setSelectedNode(node);
+    const normalizedLine = toLineNumber((node as any)?.line);
+    setSelectedNode({ ...node, line: normalizedLine });
     if (!node.file) return;
-    openFileInSource(node.file, node.line);
+    openFileInSource(node.file, normalizedLine);
   }, [openFileInSource]);
 
   const handleUpdateNodeDescription = useCallback((nodeId: string, description: string) => {
@@ -668,10 +690,9 @@ function App() {
   }, [updateNodeDescription]);
 
   useEffect(() => {
-    if (!targetLine || !sourceCode || !sourceEditorRef.current) return;
-    sourceEditorRef.current.revealLineInCenter(targetLine);
-    sourceEditorRef.current.setPosition({ lineNumber: targetLine, column: 1 });
-  }, [targetLine, sourceCode, selectedFile]);
+    if (!sourceCode) return;
+    locateSourceLine(targetLine);
+  }, [targetLine, sourceCode, selectedFile, locateSourceLine]);
 
   useEffect(() => {
     if (!sourceEditorRef.current || !sourceMonacoRef.current) return;
@@ -707,7 +728,8 @@ function App() {
         autoFindInSelection: 'never',
       },
     });
-  }, []);
+    locateSourceLine(targetLine);
+  }, [locateSourceLine, targetLine]);
 
   const toggleFolder = (path: string) => {
     setExpandedFolders((prev) => {

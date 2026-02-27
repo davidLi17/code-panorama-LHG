@@ -46,6 +46,14 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [draftDescription, setDraftDescription] = useState('');
   const { getNodes } = useReactFlow();
+  const formatFileWithLine = (node: GraphNode) => {
+    const rawLine = (node as unknown as { line?: unknown }).line;
+    const lineNumber = typeof rawLine === 'number' ? rawLine : Number(rawLine);
+    if (Number.isFinite(lineNumber) && lineNumber > 0) {
+      return `${node.file}(L${Math.floor(lineNumber)})`;
+    }
+    return node.file;
+  };
 
   useImperativeHandle(ref, () => ({
     exportImage: async () => {
@@ -213,7 +221,9 @@ const GraphViewerInner = forwardRef<GraphViewerRef, GraphViewerProps>(({ data, t
                 }`}>
                 <div>
                     <h3 className={`font-bold ${theme === 'dark' ? 'text-slate-100' : 'text-gray-900'}`}>{selectedNode.label}</h3>
-                    <p className={`text-xs font-mono mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-gray-500'}`}>{selectedNode.file}</p>
+                    <p className={`text-xs font-mono mt-0.5 ${theme === 'dark' ? 'text-slate-500' : 'text-gray-500'}`}>
+                      {formatFileWithLine(selectedNode)}
+                    </p>
                 </div>
                 <button onClick={() => setSelectedNode(null)} className={`${theme === 'dark' ? 'text-slate-500 hover:text-slate-300' : 'text-gray-400 hover:text-gray-600'}`}>
                     <X size={16} />
