@@ -2,111 +2,219 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { GraphData, LogEntry, AgentStatus, GraphNode, GraphEdge, GraphModule, AiUsageStats } from '../types';
 
+/**
+ * 下钻标志：-1 表示停止（叶子节点），0 表示不确定，1 表示建议下钻
+ */
 type DrillFlag = -1 | 0 | 1;
+
+/**
+ * 源码来源类型：远程 GitHub 仓库或本地目录
+ */
 type SourceType = 'github' | 'local';
 
+/**
+ * AI Agent 的全局设置
+ */
 type AgentSettings = {
+  /** LLM API 基础地址（如 OpenAI / DeepSeek） */
   llmBaseUrl?: string;
+  /** 使用的模型名称 */
   llmModel?: string;
+  /** API 密钥 */
   llmApiKey?: string;
+  /** 最大递归下钻深度 */
   maxDrillDepth?: number;
+  /** 每个函数最多提取的子调用数量（限制图表复杂度） */
   maxChildCallsPerFunction?: number;
 };
 
+/**
+ * 本地分析不可用时的提示信息
+ */
 const LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE = '本地分析仅限本地部署使用，当前无法使用。';
 
+/**
+ * AI 解析出的子调用节点原始数据
+ */
 type LlmCallNode = {
+  /** 调用的函数或方法名 */
   name?: string;
+  /** 节点类型：function, class, method 等 */
   type?: string;
+  /** 业务重要性评分 */
   importance?: string;
+  /** 子函数职责的中文描述 */
   description?: string;
+  /** 是否需要继续下钻的 AI 建议标志 */
   shouldDrill?: number;
+  /** AI 基于上下文推测的该函数定义所在文件路径 */
   possibleFile?: string;
 };
 
+/**
+ * AI 对单个函数的完整分析结果包
+ */
 type LlmFunctionAnalysis = {
+  /** 函数的标准化名称 */
   functionName?: string;
+  /** 函数定义类型 */
   functionType?: string;
+  /** 函数的核心职责简述 */
   description?: string;
+  /** 业务逻辑重要程度 */
   importance?: string;
+  /** 函数体内扫描出的关键调用列表 */
   calls?: LlmCallNode[];
 };
 
+/**
+ * 递归分析队列中的单次下钻任务单元
+ */
 type DrillTask = {
+  /** 当前节点图 ID */
   nodeId: string;
+  /** 待分析的目标函数名 */
   functionName: string;
+  /** 父节点 ID */
   parentNodeId?: string;
+  /** 调用者的文件路径 */
   parentFile?: string;
+  /** 调用者的函数主名 */
   parentFunctionName?: string;
+  /** 预估的目标函数文件路径（AI 猜测） */
   possibleFile?: string;
+  /** 当前递归深度（0 为入口） */
   depth: number;
+  /** 下钻状态控制位 */
   drillFlag: DrillFlag;
 };
 
+/**
+ * 全景图持久化记录，用于生成最终文档和图表渲染
+ */
 type CallChainRecord = {
+  /** 节点唯一标识 */
   nodeId: string;
+  /** 函数名称 */
   functionName: string;
+  /** 函数定义所在的最终物理文件 */
   file?: string;
+  /** 源码中的行号（1-based） */
   line?: number;
+  /** 节点在调用链中的深度 */
   depth: number;
+  /** 下钻标志 */
   drillFlag: DrillFlag;
+  /** 父节点 ID */
   parentNodeId?: string;
+  /** 分析生命周期状态 */
   status: 'queued' | 'analyzing' | 'done' | 'skipped' | 'failed';
+  /** 函数定位寻找过程的详细多步记录 */
   locateAttempts?: string[];
+  /** 失败原因捕获 */
   error?: string;
 };
 
+/**
+ * 函数定位操作的详细返回结果
+ */
 type LocateResult = {
+  /** 最终确认存在定义的物理文件 */
   file: string;
+  /** 定位文件的源码快照 */
   content: string;
+  /** 定义所在的行号 */
   line?: number;
+  /** 多步搜索（三步法）的执行日志 */
   attempts: string[];
+  /** 是否被识别为标准库/系统引用（从而停止下钻） */
   isSystemOrLibraryFunction?: boolean;
+  /** 识别为系统函数的语义原因 */
   systemOrLibraryReason?: string;
 };
 
+/**
+ * 框架逻辑桥接发现的业务入口子节点信息
+ */
 type FrameworkBridgeChild = {
+  /** 业务入口名 */
   name: string;
+  /** 固定类型 */
   type: 'method';
+  /** 入口业务功能描述 */
   description: string;
+  /** 重要程度 */
   importance: 'high' | 'medium' | 'low';
+  /** 桥接生成的节点默认需要进一步下钻 */
   shouldDrill: 1;
+  /** 可能存在业务逻辑的具体文件 */
   possibleFile: string;
+  /** HTTP 请求方法（如果是 Web 入口） */
   httpMethod?: string;
+  /** API 路由路径 */
   httpRoute?: string;
 };
 
+/**
+ * 传递给框架策略的扫描上下文
+ */
 type FrameworkBridgeContext = {
+  /** 项目编程语言 */
   language: string;
+  /** 当前拦截到的框架启动名称（如 app.run） */
   functionName: string;
+  /** 命中原因说明 */
   reason?: string;
+  /** 仓库基础 URL */
   url: string;
+  /** 鉴权 Token */
   token?: string;
+  /** 项目内所有的代码文件列表（用于全量扫描） */
   codeFiles: string[];
+  /** 最大允许发现的子入口数 */
   maxChildren: number;
 };
 
+/**
+ * 框架识别策略定义（如针对 SpringBoot 或 Flask 的专项识别）
+ */
 type FrameworkBridgeStrategy = {
+  /** 策略唯一 ID */
   id: string;
+  /** 策略友好名称 */
   name: string;
+  /** 判断当前函数是否为该框架资产的匹配函数 */
   match: (ctx: FrameworkBridgeContext) => boolean;
+  /** 在项目中发现隐藏业务入口的异步过程 */
   discover: (ctx: FrameworkBridgeContext) => Promise<FrameworkBridgeChild[]>;
 };
 
+/**
+ * 全景图文档持久化状态
+ */
 type PanoramaDocState = {
+  /** 项目元数据 */
   metadata: {
     repoUrl: string;
     repoName: string;
     language: string;
     generatedAt: string;
   };
+  /** AI 生成的项目核心摘要 */
   summary: string;
+  /** 项目内所有物理路径 */
   allFiles: string[];
+  /** 过滤后的纯源码文件路径 */
   codeFiles: string[];
+  /** 调用链核心数据结构 */
   callChain: {
+    /** 配置的最大深度限制 */
     maxDepth: number;
+    /** 入口文件路径 */
     entryPoint?: string;
+    /** 完整的逐级分析记录 */
     records: CallChainRecord[];
+    /** 用于可视化图形库的数据集快照 */
     graph: {
       nodes: Array<{
         id: string;
