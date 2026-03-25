@@ -1,21 +1,36 @@
 import OpenAI from "openai";
 
 export function normalizeBaseUrl(url: string): string {
+  // 0. 如果url为空，直接返回
   if (!url) return url;
-  const normalized = url.replace(/\/+$/, "");
-  return normalized.endsWith("/v1") ? normalized : `${normalized}/v1`;
-}
+  // 1. 去除末尾多余的斜杠（例："/v1/" → "/v1"）
+  let normalized = url.replace(/\/+$/, "");
 
-export const llmBaseUrl = normalizeBaseUrl(process.env.LLM_BASE_URL || "https://api.openai.com/v1");
+  // 2. 剥离客户端会自动拼接的后缀（避免最终变成 /v1/chat/completions/chat/completions）
+  normalized = normalized.replace(/\/chat\/completions$/, "");
+  normalized = normalized.replace(/\/completions$/, "");
+
+  // 3. 检查是否已包含版本号（例：/v1, /v2）
+  if (/\/(v\d+)/i.test(normalized)) {
+    return normalized; // 有版本号直接返回，不再追加
+  }
+
+  // 4. 啥都没有，补上默认的 /v1
+  return `${normalized}/v1`;
+}
+export const llmBaseUrl = normalizeBaseUrl(
+  process.env.LLM_BASE_URL || "https://openrouter.ai/api/v1",
+);
 export const llmApiKey = process.env.LLM_API_KEY || "";
-export const llmModel = process.env.LLM_MODEL || "gemini-3-flash-preview";
+export const llmModel =
+  process.env.LLM_MODEL || "google/gemini-3.1-flash-lite-preview";
 
 const clientMap = new Map<string, OpenAI>();
 
 export function getLlmClient(options?: { baseUrl?: string; apiKey?: string }) {
   const resolvedApiKey = String(options?.apiKey || llmApiKey || "").trim();
   if (!resolvedApiKey) {
-    throw new Error("LLM_API_KEY is not set.");
+    throw new Error("LLM_API_KEY is not exist.");
   }
 
   const resolvedBaseUrl = normalizeBaseUrl(options?.baseUrl || llmBaseUrl);
@@ -24,9 +39,9 @@ export function getLlmClient(options?: { baseUrl?: string; apiKey?: string }) {
   if (hit) return hit;
 
   const client = new OpenAI({
-      baseURL: resolvedBaseUrl,
-      apiKey: resolvedApiKey,
-      timeout: 120000,
+    baseURL: resolvedBaseUrl,
+    apiKey: resolvedApiKey,
+    timeout: 120000,
   });
 
   clientMap.set(cacheKey, client);
@@ -55,7 +70,7 @@ export function extractJsonFromText(text: string) {
           escaped = true;
           continue;
         }
-        if (ch === "\"") {
+        if (ch === '"') {
           out += ch;
           inString = false;
           continue;
@@ -90,7 +105,7 @@ export function extractJsonFromText(text: string) {
         continue;
       }
 
-      if (ch === "\"") {
+      if (ch === '"') {
         inString = true;
       }
       out += ch;
