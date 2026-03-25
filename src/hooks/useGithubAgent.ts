@@ -1,6 +1,14 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
-import { GraphData, LogEntry, AgentStatus, GraphNode, GraphEdge, GraphModule, AiUsageStats } from '../types';
+import { useState, useCallback, useMemo, useRef } from "react";
+import axios from "axios";
+import {
+  GraphData,
+  LogEntry,
+  AgentStatus,
+  GraphNode,
+  GraphEdge,
+  GraphModule,
+  AiUsageStats,
+} from "../types";
 
 /**
  * 下钻标志：-1 表示停止（叶子节点），0 表示不确定，1 表示建议下钻
@@ -10,7 +18,7 @@ type DrillFlag = -1 | 0 | 1;
 /**
  * 源码来源类型：远程 GitHub 仓库或本地目录
  */
-type SourceType = 'github' | 'local';
+type SourceType = "github" | "local";
 
 /**
  * AI Agent 的全局设置
@@ -31,7 +39,8 @@ type AgentSettings = {
 /**
  * 本地分析不可用时的提示信息
  */
-const LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE = '本地分析仅限本地部署使用，当前无法使用。';
+const LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE =
+  "本地分析仅限本地部署使用，当前无法使用。";
 
 /**
  * AI 解析出的子调用节点原始数据
@@ -108,7 +117,7 @@ type CallChainRecord = {
   /** 父节点 ID */
   parentNodeId?: string;
   /** 分析生命周期状态 */
-  status: 'queued' | 'analyzing' | 'done' | 'skipped' | 'failed';
+  status: "queued" | "analyzing" | "done" | "skipped" | "failed";
   /** 函数定位寻找过程的详细多步记录 */
   locateAttempts?: string[];
   /** 失败原因捕获 */
@@ -140,11 +149,11 @@ type FrameworkBridgeChild = {
   /** 业务入口名 */
   name: string;
   /** 固定类型 */
-  type: 'method';
+  type: "method";
   /** 入口业务功能描述 */
   description: string;
   /** 重要程度 */
-  importance: 'high' | 'medium' | 'low';
+  importance: "high" | "medium" | "low";
   /** 桥接生成的节点默认需要进一步下钻 */
   shouldDrill: 1;
   /** 可能存在业务逻辑的具体文件 */
@@ -216,39 +225,121 @@ type PanoramaDocState = {
     records: CallChainRecord[];
     /** 用于可视化图形库的数据集快照 */
     graph: {
+      /** 逻辑图中的所有功能节点 */
       nodes: Array<{
+        /** 节点的唯一标识符 */
         id: string;
+        /** 节点显示的文本（通常是函数名） */
         label: string;
+        /** 该函数定义所在的代码文件路径 */
         file: string;
+        /** 该函数定义的起始行号 */
         line?: number;
+        /** 在调用链中的层级深度（0 为入口） */
         depth?: number;
+        /** AI 生成的该节点职责简述 */
         description?: string;
+        /** 该函数关联的 HTTP 方法（如果是 API 入口） */
         httpMethod?: string;
+        /** 该函数关联的 API 路由路径 */
         httpRoute?: string;
       }>;
-      edges: Array<{ source: string; target: string }>;
+      /** 节点之间的连接关系（边） */
+      edges: Array<{
+        /** 源节点 ID */
+        source: string;
+        /** 目标节点 ID */
+        target: string;
+      }>;
     };
   };
 };
 
 const CODE_EXTENSIONS = [
-  '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.c', '.cpp', '.h', '.hpp', '.cc', '.cxx',
-  '.cs', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.kts', '.scala',
-  '.html', '.css', '.scss', '.less', '.vue', '.svelte', '.dart', '.lua',
-  '.pl', '.sh', '.bash', '.zsh', '.sql', '.r', '.m', '.mm', '.f', '.f90',
-  '.asm', '.s', '.v', '.vhdl', '.clj', '.cljs', '.ex', '.exs', '.erl'
+  ".js",
+  ".jsx",
+  ".ts",
+  ".tsx",
+  ".py",
+  ".java",
+  ".c",
+  ".cpp",
+  ".h",
+  ".hpp",
+  ".cc",
+  ".cxx",
+  ".cs",
+  ".go",
+  ".rs",
+  ".php",
+  ".rb",
+  ".swift",
+  ".kt",
+  ".kts",
+  ".scala",
+  ".html",
+  ".css",
+  ".scss",
+  ".less",
+  ".vue",
+  ".svelte",
+  ".dart",
+  ".lua",
+  ".pl",
+  ".sh",
+  ".bash",
+  ".zsh",
+  ".sql",
+  ".r",
+  ".m",
+  ".mm",
+  ".f",
+  ".f90",
+  ".asm",
+  ".s",
+  ".v",
+  ".vhdl",
+  ".clj",
+  ".cljs",
+  ".ex",
+  ".exs",
+  ".erl",
 ];
 
-const MODULE_COLORS = ['#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16'];
+const MODULE_COLORS = [
+  "#3b82f6",
+  "#06b6d4",
+  "#10b981",
+  "#f59e0b",
+  "#ef4444",
+  "#8b5cf6",
+  "#ec4899",
+  "#84cc16",
+];
 
-function getEnvInt(name: string, fallback: number, min: number, max: number, aliases: string[] = []) {
-  const env = typeof process !== 'undefined' ? (process.env as any) : undefined;
+/**
+ * 从环境变量或备选名称中获取整数值，并进行范围限制
+ * @param name 环境变量主键名
+ * @param fallback 默认回退值
+ * @param min 允许的最小值
+ * @param max 允许的最大值
+ * @param aliases 环境变量备选键名列表
+ * @returns 最终确定的整数值
+ */
+function getEnvInt(
+  name: string,
+  fallback: number,
+  min: number,
+  max: number,
+  aliases: string[] = [],
+) {
+  const env = typeof process !== "undefined" ? (process.env as any) : undefined;
   const keys = [name, ...aliases];
   let raw: unknown = undefined;
 
   for (const key of keys) {
     const value = env?.[key];
-    if (value !== undefined && value !== null && String(value).trim() !== '') {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
       raw = value;
       break;
     }
@@ -261,16 +352,21 @@ function getEnvInt(name: string, fallback: number, min: number, max: number, ali
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-const DEFAULT_MAX_DRILL_DEPTH = 2
-const MAX_CHILD_CALLS_PER_FUNCTION = 10
+const DEFAULT_MAX_DRILL_DEPTH = getEnvInt("MAX_DRILL_DEPTH", 2, 1, 8, ["DRILL_DEPTH"]);
+const MAX_CHILD_CALLS_PER_FUNCTION = getEnvInt("MAX_CHILD_CALLS", 10, 1, 30, ["CHILD_CALL_LIMIT"]);
 
+/**
+ * 生成初始化的全景图数据结构
+ * @param repoName 仓库显示名称
+ * @returns 初始化的 GraphData 对象
+ */
 const INITIAL_GRAPH = (repoName: string): GraphData => ({
   repoName,
-  repoUrl: '',
+  repoUrl: "",
   project: {
-    language: 'Unknown',
+    language: "Unknown",
     techStack: [],
-    summary: '分析进行中：正在逐步下钻构建函数调用链与项目全景信息。',
+    summary: "分析进行中：正在逐步下钻构建函数调用链与项目全景信息。",
   },
   modules: [],
   nodes: [],
@@ -279,72 +375,110 @@ const INITIAL_GRAPH = (repoName: string): GraphData => ({
   callChainRecords: [],
 });
 
+/**
+ * 从 GitHub URL 或本地路径中提取仓库名称
+ * @param url 仓库地址或目录路径
+ * @returns 提取出的仓库名称（如 "owner/repo" 或目录名）
+ */
 function parseRepoName(url: string) {
   try {
-    const parts = new URL(url).pathname.split('/').filter(Boolean);
-    return parts.slice(0, 2).join('/') || url;
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    return parts.slice(0, 2).join("/") || url;
   } catch {
-    const clean = String(url || '').replace(/[\\\/]+$/, '');
+    const clean = String(url || "").replace(/[\\\/]+$/, "");
     const segs = clean.split(/[\\/]/).filter(Boolean);
-    return segs[segs.length - 1] || clean || 'local-project';
+    return segs[segs.length - 1] || clean || "local-project";
   }
 }
 
+/**
+ * 清理文件路径，去除冗余的 "./" 前缀并修剪空格
+ * @param path 原始路径字符串
+ * @returns 清理后的路径
+ */
 function sanitizeFilePath(path?: string) {
-  if (!path || typeof path !== 'string') return '';
-  return path.replace(/^\.\//, '').trim();
+  if (!path || typeof path !== "string") return "";
+  return path.replace(/^\.\//, "").trim();
 }
 
+/**
+ * 标准化 HTTP 路由路径，确保以 "/" 开头且无重复斜杠
+ * @param path 原始路由路径
+ * @returns 标准化后的路由
+ */
 function normalizeHttpRoute(path?: string) {
-  const p = String(path || '').trim().replace(/^["']|["']$/g, '');
-  if (!p) return '';
-  const withSlash = p.startsWith('/') ? p : `/${p}`;
-  return withSlash.replace(/\/{2,}/g, '/');
+  const p = String(path || "")
+    .trim()
+    .replace(/^["']|["']$/g, "");
+  if (!p) return "";
+  const withSlash = p.startsWith("/") ? p : `/${p}`;
+  return withSlash.replace(/\/{2,}/g, "/");
 }
 
+/**
+ * 合并父级路由前缀和当前方法路由
+ * @param prefix 父级路径前缀（如类级别的 @RequestMapping）
+ * @param route 方法级路径
+ * @returns 拼接后的完整路由
+ */
 function mergeHttpRoutes(prefix?: string, route?: string) {
   const a = normalizeHttpRoute(prefix);
   const b = normalizeHttpRoute(route);
   if (!a) return b;
   if (!b) return a;
-  return `${a}/${b}`.replace(/\/{2,}/g, '/');
+  return `${a}/${b}`.replace(/\/{2,}/g, "/");
 }
 
+/**
+ * 从 Java 注解参数（如 @RequestMapping("...")）中提取路由字符串
+ * @param args 注解内的原始参数文本
+ * @returns 提取出的路由路径
+ */
 function extractRouteFromMappingArgs(args?: string) {
-  const text = String(args || '');
+  const text = String(args || "");
   const named = text.match(/\b(?:path|value)\s*=\s*["']([^"']+)["']/);
   if (named?.[1]) return normalizeHttpRoute(named[1]);
   const firstArg = text.match(/\(\s*["']([^"']+)["']/);
   if (firstArg?.[1]) return normalizeHttpRoute(firstArg[1]);
   const rawFirstArg = text.match(/^\s*["']([^"']+)["']/);
   if (rawFirstArg?.[1]) return normalizeHttpRoute(rawFirstArg[1]);
-  return '';
+  return "";
 }
 
+/**
+ * 根据源码内容和语言特性，检测函数是否关联了 HTTP 端点（API 路径和方法）
+ * @param params 包含语言、文件内容、函数名的参数对象
+ * @returns 识别出的 httpMethod 和 httpRoute（如果有）
+ */
 function detectHttpEndpointFromLocatedFunction(params: {
   language: string;
   fileContent: string;
   functionName: string;
 }): { httpMethod?: string; httpRoute?: string } {
-  const language = String(params.language || '').toLowerCase();
-  const content = String(params.fileContent || '');
-  const fn = String(params.functionName || '').trim();
+  const language = String(params.language || "").toLowerCase();
+  const content = String(params.fileContent || "");
+  const fn = String(params.functionName || "").trim();
   if (!content || !fn) return {};
 
-  if (language.includes('java')) {
+  if (language.includes("java")) {
     const lines = content.split(/\r?\n/);
     const names = functionNameCandidates(fn);
     let lineIdx = -1;
     for (const name of names) {
       const regs = functionRegexes(name);
       const idx = lines.findIndex((line) => regs.some((re) => re.test(line)));
-      if (idx >= 0) { lineIdx = idx; break; }
+      if (idx >= 0) {
+        lineIdx = idx;
+        break;
+      }
     }
     if (lineIdx < 0) return {};
 
-    const annText = lines.slice(Math.max(0, lineIdx - 14), lineIdx + 1).join('\n');
+    const annText = lines
+      .slice(Math.max(0, lineIdx - 14), lineIdx + 1)
+      .join("\n");
     let httpMethod: string | undefined;
-    let methodRoute = '';
+    let methodRoute = "";
 
     const getMatch = annText.match(/@GetMapping(?:\s*\(([\s\S]*?)\))?/);
     const postMatch = annText.match(/@PostMapping(?:\s*\(([\s\S]*?)\))?/);
@@ -353,34 +487,58 @@ function detectHttpEndpointFromLocatedFunction(params: {
     const patchMatch = annText.match(/@PatchMapping(?:\s*\(([\s\S]*?)\))?/);
     const reqMatch = annText.match(/@RequestMapping(?:\s*\(([\s\S]*?)\))?/);
 
-    if (getMatch) { httpMethod = 'GET'; methodRoute = extractRouteFromMappingArgs(getMatch[1]); }
-    else if (postMatch) { httpMethod = 'POST'; methodRoute = extractRouteFromMappingArgs(postMatch[1]); }
-    else if (putMatch) { httpMethod = 'PUT'; methodRoute = extractRouteFromMappingArgs(putMatch[1]); }
-    else if (deleteMatch) { httpMethod = 'DELETE'; methodRoute = extractRouteFromMappingArgs(deleteMatch[1]); }
-    else if (patchMatch) { httpMethod = 'PATCH'; methodRoute = extractRouteFromMappingArgs(patchMatch[1]); }
-    else if (reqMatch) {
-      const reqArgs = String(reqMatch[1] || '');
-      const methodMatch = reqArgs.match(/RequestMethod\.(GET|POST|PUT|DELETE|PATCH)/i);
+    if (getMatch) {
+      httpMethod = "GET";
+      methodRoute = extractRouteFromMappingArgs(getMatch[1]);
+    } else if (postMatch) {
+      httpMethod = "POST";
+      methodRoute = extractRouteFromMappingArgs(postMatch[1]);
+    } else if (putMatch) {
+      httpMethod = "PUT";
+      methodRoute = extractRouteFromMappingArgs(putMatch[1]);
+    } else if (deleteMatch) {
+      httpMethod = "DELETE";
+      methodRoute = extractRouteFromMappingArgs(deleteMatch[1]);
+    } else if (patchMatch) {
+      httpMethod = "PATCH";
+      methodRoute = extractRouteFromMappingArgs(patchMatch[1]);
+    } else if (reqMatch) {
+      const reqArgs = String(reqMatch[1] || "");
+      const methodMatch = reqArgs.match(
+        /RequestMethod\.(GET|POST|PUT|DELETE|PATCH)/i,
+      );
       httpMethod = methodMatch?.[1]?.toUpperCase();
       methodRoute = extractRouteFromMappingArgs(reqArgs);
     }
 
-    const classMappingMatch = content.match(/@RequestMapping\s*\(([\s\S]*?)\)\s*(?:public\s+)?class\b/);
-    const classRoute = classMappingMatch?.[1] ? extractRouteFromMappingArgs(classMappingMatch[1]) : '';
+    const classMappingMatch = content.match(
+      /@RequestMapping\s*\(([\s\S]*?)\)\s*(?:public\s+)?class\b/,
+    );
+    const classRoute = classMappingMatch?.[1]
+      ? extractRouteFromMappingArgs(classMappingMatch[1])
+      : "";
     const finalRoute = mergeHttpRoutes(classRoute, methodRoute);
 
     if (!httpMethod && !finalRoute) return {};
     return { httpMethod, httpRoute: finalRoute || undefined };
   }
 
-  if (language.includes('python')) {
+  if (language.includes("python")) {
     const lines = content.split(/\r?\n/);
     const names = functionNameCandidates(fn);
     let lineIdx = -1;
-    let matchedName = '';
+    let matchedName = "";
     for (const name of names) {
-      const idx = lines.findIndex((line) => new RegExp(`^\\s*def\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\(`).test(line));
-      if (idx >= 0) { lineIdx = idx; matchedName = name; break; }
+      const idx = lines.findIndex((line) =>
+        new RegExp(
+          `^\\s*def\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\(`,
+        ).test(line),
+      );
+      if (idx >= 0) {
+        lineIdx = idx;
+        matchedName = name;
+        break;
+      }
     }
     if (lineIdx < 0 || !matchedName) return {};
 
@@ -388,21 +546,25 @@ function detectHttpEndpointFromLocatedFunction(params: {
     for (let i = lineIdx - 1; i >= 0; i -= 1) {
       const line = lines[i].trim();
       if (!line) continue;
-      if (!line.startsWith('@')) break;
+      if (!line.startsWith("@")) break;
       decorators.unshift(line);
     }
-    const decoText = decorators.join('\n');
-    const routeMatch = decoText.match(/@([A-Za-z_]\w*)?\.?route\s*\(([\s\S]*?)\)/m);
+    const decoText = decorators.join("\n");
+    const routeMatch = decoText.match(
+      /@([A-Za-z_]\w*)?\.?route\s*\(([\s\S]*?)\)/m,
+    );
     if (!routeMatch) return {};
 
-    const args = routeMatch[2] || '';
+    const args = routeMatch[2] || "";
     const pathMatch = args.match(/["']([^"']+)["']/);
     const methodsMatch = args.match(/\bmethods\s*=\s*\[([^\]]+)\]/);
     const methods = methodsMatch?.[1]
-      ? Array.from(methodsMatch[1].matchAll(/["']([A-Za-z]+)["']/g)).map((m) => m[1].toUpperCase())
+      ? Array.from(methodsMatch[1].matchAll(/["']([A-Za-z]+)["']/g)).map((m) =>
+          m[1].toUpperCase(),
+        )
       : [];
     return {
-      httpMethod: methods.length ? methods.join(',') : 'GET',
+      httpMethod: methods.length ? methods.join(",") : "GET",
       httpRoute: pathMatch?.[1] ? normalizeHttpRoute(pathMatch[1]) : undefined,
     };
   }
@@ -410,94 +572,155 @@ function detectHttpEndpointFromLocatedFunction(params: {
   return {};
 }
 
+/**
+ * 构建用于入口校验的源码预览内容（针对大文件进行头尾采样）
+ * @param content 完整的源码内容
+ * @returns 截链后的预览文本
+ */
 function buildEntryVerifyContentByLines(content: string) {
-  const lines = String(content || '').split(/\r?\n/);
+  const lines = String(content || "").split(/\r?\n/);
   const total = lines.length;
 
   if (total <= 2000) {
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   if (total <= 4000) {
-    return lines.slice(0, 2000).join('\n');
+    return lines.slice(0, 2000).join("\n");
   }
 
-  const head = lines.slice(0, 2000).join('\n');
-  const tail = lines.slice(-2000).join('\n');
+  const head = lines.slice(0, 2000).join("\n");
+  const tail = lines.slice(-2000).join("\n");
   const omitted = Math.max(0, total - 4000);
   return `${head}\n\n// ... 中间省略 ${omitted} 行 ...\n\n${tail}`;
 }
 
+/**
+ * 标准化下钻标志，确保其符合 DrillFlag 枚举类型
+ * @param value 原始输入值
+ * @returns 标准化后的 DrillFlag
+ */
 function normalizeDrillFlag(value: unknown): DrillFlag {
   if (value === -1 || value === 0 || value === 1) return value;
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (value <= -1) return -1;
     if (value >= 1) return 1;
   }
   return 0;
 }
 
-function normalizeImportance(value: unknown): GraphNode['importance'] {
-  const v = String(value || '').toLowerCase();
-  if (v === 'high' || v === 'medium' || v === 'low') return v;
-  if (v.includes('high') || v.includes('关键')) return 'high';
-  if (v.includes('low') || v.includes('次要')) return 'low';
-  return 'medium';
+/**
+ * 标准化业务重要性评分
+ * @param value 原始输入（如 "high", "关键" 等）
+ * @returns 标准化后的重要性等级
+ */
+function normalizeImportance(value: unknown): GraphNode["importance"] {
+  const v = String(value || "").toLowerCase();
+  if (v === "high" || v === "medium" || v === "low") return v;
+  if (v.includes("high") || v.includes("关键")) return "high";
+  if (v.includes("low") || v.includes("次要")) return "low";
+  return "medium";
 }
 
-function normalizeNodeType(value: unknown): GraphNode['type'] {
-  const v = String(value || '').toLowerCase();
-  if (v.includes('class')) return 'class';
-  if (v.includes('module')) return 'module';
-  if (v.includes('file')) return 'file';
-  return 'function';
+/**
+ * 标准化节点类型（function, class, module, file）
+ * @param value 原始输入类型字符串
+ * @returns 标准化后的节点类型
+ */
+function normalizeNodeType(value: unknown): GraphNode["type"] {
+  const v = String(value || "").toLowerCase();
+  if (v.includes("class")) return "class";
+  if (v.includes("module")) return "module";
+  if (v.includes("file")) return "file";
+  return "function";
 }
 
+/**
+ * 将字符串转换为符合 ID 规范的 slug 格式
+ * @param input 原始文本
+ * @returns 处理后的 slug 字符串
+ */
 function slugify(input: string) {
-  return input.toLowerCase().replace(/[^a-z0-9_\-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'node';
+  return (
+    input
+      .toLowerCase()
+      .replace(/[^a-z0-9_\-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "node"
+  );
 }
 
+/**
+ * 判断输入文本是否为 Python 的 main 守护判断语句（__name__ == "__main__"）
+ * @param input 源码行内容
+ * @returns 是否包含 main 守护判断
+ */
 function isPythonMainGuardName(input: string) {
-  const v = String(input || '').toLowerCase().replace(/\s+/g, '');
-  return v.includes('__name__') && v.includes('__main__');
+  const v = String(input || "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  return v.includes("__name__") && v.includes("__main__");
 }
 
+/**
+ * 在 Python 源码中寻找 main 守护语句的行号
+ * @param content 源码内容
+ * @returns 所在的行号（1-based）或 undefined
+ */
 function findPythonMainGuardLine(content: string) {
-  const lines = String(content || '').split(/\r?\n/);
+  const lines = String(content || "").split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i].replace(/\s+/g, '');
-    if (line.includes('if__name__==') && line.includes('__main__')) {
+    const line = lines[i].replace(/\s+/g, "");
+    if (line.includes("if__name__==") && line.includes("__main__")) {
       return i + 1;
     }
   }
   return undefined;
 }
 
+/**
+ * 在多个候选函数中挑选最合适的项目入口函数名
+ * @param params 语言、候选列表、入口文件内容
+ * @returns 最终选定的入口函数名
+ */
 function chooseEntryFunctionName(params: {
   language: string;
   candidates: string[];
   entryContent: string;
 }) {
-  const language = String(params.language || '').toLowerCase();
-  const cleaned = Array.from(new Set((params.candidates || []).map((x) => String(x || '').trim()).filter(Boolean)));
-  if (!language.includes('python')) {
-    return cleaned[0] || 'main';
+  const language = String(params.language || "").toLowerCase();
+  const cleaned = Array.from(
+    new Set(
+      (params.candidates || [])
+        .map((x) => String(x || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  if (!language.includes("python")) {
+    return cleaned[0] || "main";
   }
 
   const nonGuard = cleaned.filter((name) => !isPythonMainGuardName(name));
-  const entryContent = String(params.entryContent || '');
+  const entryContent = String(params.entryContent || "");
   const hasDefMain = /^\s*def\s+main\s*\(/m.test(entryContent);
 
-  if (hasDefMain) return 'main';
+  if (hasDefMain) return "main";
   if (nonGuard.length > 0) return nonGuard[0];
-  return '__module_entry__';
+  return "__module_entry__";
 }
 
+/**
+ * 生成可能的函数名变体（如处理作用域限定符 TSharkAPI::init -> [TSharkAPI::init, init]）
+ * @param fn 原始函数名
+ * @returns 候选名称列表
+ */
 function functionNameCandidates(fn: string) {
-  const normalized = String(fn || '').trim().replace(/\(\s*\)$/, '');
+  const normalized = String(fn || "")
+    .trim()
+    .replace(/\(\s*\)$/, "");
   if (!normalized) return [];
   const candidates = [normalized];
-  const splitters = ['::', '->', '.'];
+  const splitters = ["::", "->", "."];
   for (const sep of splitters) {
     if (normalized.includes(sep)) {
       const tail = normalized.split(sep).filter(Boolean).pop();
@@ -507,11 +730,18 @@ function functionNameCandidates(fn: string) {
   return Array.from(new Set(candidates.filter(Boolean)));
 }
 
+/**
+ * 生成用于在源码中搜索函数定义的正则列表（适配多种语言的 function/def/fn 定义语法）
+ * @param fn 待查找的函数名
+ * @returns 正则表达式数组
+ */
 function functionRegexes(fn: string) {
-  const escaped = fn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = fn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return [
     new RegExp(`\\bfunction\\s+${escaped}\\b`),
-    new RegExp(`\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s*)?(?:function|\\()`),
+    new RegExp(
+      `\\b(?:const|let|var)\\s+${escaped}\\s*=\\s*(?:async\\s*)?(?:function|\\()`,
+    ),
     new RegExp(`\\b${escaped}\\s*:\\s*(?:async\\s*)?function\\b`),
     new RegExp(`\\b${escaped}\\s*:\\s*(?:async\\s*)?\\(`),
     new RegExp(`\\b${escaped}\\s*=\\s*(?:async\\s*)?\\(`),
@@ -523,20 +753,35 @@ function functionRegexes(fn: string) {
   ];
 }
 
+/**
+ * 检查文件内容是否包含指定函数的定义
+ * @param content 源码内容
+ * @param fn 函数名
+ * @returns 是否匹配到定义
+ */
 function fileContainsFunctionDefinition(content: string, fn: string) {
   if (!content || !fn) return false;
   const names = functionNameCandidates(fn);
-  return names.some((name) => functionRegexes(name).some((re) => re.test(content)));
+  return names.some((name) =>
+    functionRegexes(name).some((re) => re.test(content)),
+  );
 }
 
+/**
+ * 提取函数定义附近的源码片段，用于 AI 分析
+ * @param content 完整文件内容
+ * @param fn 目标函数名
+ * @param maxLen 最大截取长度
+ * @returns 截取的源码片段
+ */
 function extractFunctionSnippet(content: string, fn: string, maxLen = 7000) {
-  if (!content) return '';
+  if (!content) return "";
 
   let idx = -1;
   if (fn) {
     const definitionIdxList = functionRegexes(fn)
       .map((re) => content.search(re))
-      .filter((v) => typeof v === 'number' && v >= 0);
+      .filter((v) => typeof v === "number" && v >= 0);
     if (definitionIdxList.length > 0) {
       idx = Math.min(...definitionIdxList);
     }
@@ -548,7 +793,7 @@ function extractFunctionSnippet(content: string, fn: string, maxLen = 7000) {
   }
 
   if (idx < 0) {
-    return content.split('\n').slice(0, 2000).join('\n');
+    return content.split("\n").slice(0, 2000).join("\n");
   }
 
   const start = Math.max(0, idx - 1200);
@@ -556,9 +801,15 @@ function extractFunctionSnippet(content: string, fn: string, maxLen = 7000) {
   return content.slice(start, end);
 }
 
+/**
+ * 寻找函数定义在源码中的具体行号
+ * @param content 源码内容
+ * @param fn 目标函数名
+ * @returns 1-based 行号或 undefined
+ */
 function findFunctionLineNumber(content: string, fn: string) {
   if (!content || !fn) return undefined;
-  const lines = content.split('\n');
+  const lines = content.split("\n");
   const names = functionNameCandidates(fn);
   for (const name of names) {
     const regexes = functionRegexes(name);
@@ -571,69 +822,115 @@ function findFunctionLineNumber(content: string, fn: string) {
   return undefined;
 }
 
+/**
+ * 生成带统一前缀的下钻日志消息
+ * @param message 原始消息
+ * @returns 装饰后的日志消息
+ */
 function drillLog(message: string) {
   return `【下钻】${message}`;
 }
 
+/**
+ * 将分析结果状态导出为全景图 Markdown 文档
+ * @param doc 全景图持久化状态对象
+ * @returns 格式化后的 Markdown 字符串
+ */
 function buildPanoramaMarkdown(doc: PanoramaDocState) {
   return [
-    '# PROJECT_PANORAMA.md',
-    '',
-    '## 1. 项目元数据',
+    "# PROJECT_PANORAMA.md",
+    "",
+    "## 1. 项目元数据",
     `- 项目地址: ${doc.metadata.repoUrl}`,
     `- 项目名称: ${doc.metadata.repoName}`,
-    `- 编程语言: ${doc.metadata.language || 'Unknown'}`,
+    `- 编程语言: ${doc.metadata.language || "Unknown"}`,
     `- 生成时间: ${doc.metadata.generatedAt}`,
-    '',
-    '## 2. 项目概要信息',
-    doc.summary || '待分析补充',
-    '',
-    '## 3. 项目所有文件列表',
+    "",
+    "## 2. 项目概要信息",
+    doc.summary || "待分析补充",
+    "",
+    "## 3. 项目所有文件列表",
     `- 全量文件数: ${doc.allFiles.length}`,
     `- 过滤后代码文件数: ${doc.codeFiles.length}`,
-    '```text',
+    "```text",
     ...doc.allFiles,
-    '```',
-    '',
-    '## 4. 函数调用链（JSON）',
-    '```json',
+    "```",
+    "",
+    "## 4. 函数调用链（JSON）",
+    "```json",
     JSON.stringify(doc.callChain, null, 2),
-    '```',
-    '',
-  ].join('\n');
+    "```",
+    "",
+  ].join("\n");
 }
 
+/**
+ * GitHub Agent 核心 Hook：协调从源码获取到 AI 分析、再到全景图可视化的完整生命周期
+ * @param settings Agent 配置（LLM 参数、下钻深度等）
+ */
 export function useGithubAgent(settings?: AgentSettings) {
-  const [status, setStatus] = useState<AgentStatus>('idle');
+  const [status, setStatus] = useState<AgentStatus>("idle");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [repoUrl, setRepoUrl] = useState('');
-  const [projectPanoramaMarkdown, setProjectPanoramaMarkdown] = useState('');
-  const [aiUsageStats, setAiUsageStats] = useState<AiUsageStats>({ inputTokens: 0, outputTokens: 0, callCount: 0 });
-  const [moduleClassificationFailed, setModuleClassificationFailed] = useState(false);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [projectPanoramaMarkdown, setProjectPanoramaMarkdown] = useState("");
+  const [aiUsageStats, setAiUsageStats] = useState<AiUsageStats>({
+    inputTokens: 0,
+    outputTokens: 0,
+    callCount: 0,
+  });
+  const [moduleClassificationFailed, setModuleClassificationFailed] =
+    useState(false);
   const [isReanalyzingModules, setIsReanalyzingModules] = useState(false);
 
   const contentCacheRef = useRef<Record<string, string>>({});
-  const functionLocateCacheRef = useRef<Record<string, {
-    file: string;
-    attempts: string[];
-    isSystemOrLibraryFunction?: boolean;
-    systemOrLibraryReason?: string;
-  }>>({});
-  const functionDrillCacheRef = useRef<Record<string, { file: string; analysis: LlmFunctionAnalysis }>>({});
+  const functionLocateCacheRef = useRef<
+    Record<
+      string,
+      {
+        file: string;
+        attempts: string[];
+        isSystemOrLibraryFunction?: boolean;
+        systemOrLibraryReason?: string;
+      }
+    >
+  >({});
+  const functionDrillCacheRef = useRef<
+    Record<string, { file: string; analysis: LlmFunctionAnalysis }>
+  >({});
   const graphRef = useRef<GraphData | null>(null);
   const panoramaRef = useRef<PanoramaDocState | null>(null);
   const authTokenRef = useRef<string | undefined>(undefined);
-  const sourceTypeRef = useRef<SourceType>('github');
+  const sourceTypeRef = useRef<SourceType>("github");
   const nodeSeqRef = useRef(0);
   const stopRequestedRef = useRef(false);
   const activeRunIdRef = useRef(0);
-  const llmBaseUrl = String(settings?.llmBaseUrl || '').trim();
-  const llmModel = String(settings?.llmModel || '').trim();
-  const llmApiKey = String(settings?.llmApiKey || '').trim();
-  const maxDrillDepth = Math.max(1, Math.min(8, Math.floor(Number(settings?.maxDrillDepth || DEFAULT_MAX_DRILL_DEPTH))));
-  const maxChildCallsPerFunction = Math.max(1, Math.min(30, Math.floor(Number(settings?.maxChildCallsPerFunction || MAX_CHILD_CALLS_PER_FUNCTION))));
+  const llmBaseUrl = String(settings?.llmBaseUrl || "").trim();
+  const llmModel = String(settings?.llmModel || "").trim();
+  const llmApiKey = String(settings?.llmApiKey || "").trim();
+  const maxDrillDepth = Math.max(
+    1,
+    Math.min(
+      8,
+      Math.floor(Number(settings?.maxDrillDepth || DEFAULT_MAX_DRILL_DEPTH)),
+    ),
+  );
+  const maxChildCallsPerFunction = Math.max(
+    1,
+    Math.min(
+      30,
+      Math.floor(
+        Number(
+          settings?.maxChildCallsPerFunction || MAX_CHILD_CALLS_PER_FUNCTION,
+        ),
+      ),
+    ),
+  );
 
+  /**
+   * 计算字符串的字节长度（用于更精确的 Token/Payload 预估）
+   * @param text 文本内容
+   */
   const byteLength = (text: string) => {
     try {
       return new TextEncoder().encode(text).length;
@@ -642,12 +939,22 @@ export function useGithubAgent(settings?: AgentSettings) {
     }
   };
 
+  /**
+   * 为日志展示截断过长的文本
+   * @param text 原始文本
+   * @param max 最大长度
+   */
   const truncateForLog = (text: string, max = 12000) => {
-    if (!text) return '';
+    if (!text) return "";
     if (text.length <= max) return text;
     return `${text.slice(0, max)}\n\n... [已截断，原始长度 ${text.length} 字符]`;
   };
 
+  /**
+   * 按字节长度截断字符串并保留完整字符，用于 AI 请求中的字段保护
+   * @param value 原始文本
+   * @param maxBytes 最大字节限制
+   */
   const truncateStringField = (value: string, maxBytes = 800) => {
     const totalBytes = byteLength(value);
     if (totalBytes <= maxBytes) return value;
@@ -661,25 +968,45 @@ export function useGithubAgent(settings?: AgentSettings) {
     return `${shown} ...[还有 ${restBytes} 字节]`;
   };
 
-  const jsonSafePreview = (input: unknown, options?: { maxFieldBytes?: number; maxArrayItems?: number; maxDepth?: number }) => {
+  /**
+   * 对 JSON 对象进行安全预览（截断长字符串、限制数组长度和递归深度），防止控制台或日志崩溃
+   * @param input 原始数据对象
+   * @param options 限制选项
+   */
+  const jsonSafePreview = (
+    input: unknown,
+    options?: {
+      maxFieldBytes?: number;
+      maxArrayItems?: number;
+      maxDepth?: number;
+    },
+  ) => {
     const maxFieldBytes = options?.maxFieldBytes ?? 800;
     const maxArrayItems = options?.maxArrayItems ?? 50;
     const maxDepth = options?.maxDepth ?? 8;
 
     const walk = (value: unknown, depth: number): unknown => {
-      if (depth > maxDepth) return '[超出展示深度]';
-      if (typeof value === 'string') return truncateStringField(value, maxFieldBytes);
-      if (typeof value === 'number' || typeof value === 'boolean' || value == null) return value;
+      if (depth > maxDepth) return "[超出展示深度]";
+      if (typeof value === "string")
+        return truncateStringField(value, maxFieldBytes);
+      if (
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        value == null
+      )
+        return value;
 
       if (Array.isArray(value)) {
-        const sliced = value.slice(0, maxArrayItems).map((item) => walk(item, depth + 1));
+        const sliced = value
+          .slice(0, maxArrayItems)
+          .map((item) => walk(item, depth + 1));
         if (value.length > maxArrayItems) {
           sliced.push(`[还有 ${value.length - maxArrayItems} 项未展示]`);
         }
         return sliced;
       }
 
-      if (typeof value === 'object') {
+      if (typeof value === "object") {
         const result: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
           result[k] = walk(v, depth + 1);
@@ -697,9 +1024,17 @@ export function useGithubAgent(settings?: AgentSettings) {
     }
   };
 
-  const requestJsonFromLlm = async (prompt: string, options?: { label?: string }) => {
+  /**
+   * 封装 LLM 请求逻辑，自动处理 Token 消耗统计记录和日志追踪
+   * @param prompt 提示词
+   * @param options 追踪标识
+   */
+  const requestJsonFromLlm = async (
+    prompt: string,
+    options?: { label?: string },
+  ) => {
     if (stopRequestedRef.current) {
-      throw new Error('__ANALYSIS_STOPPED__');
+      throw new Error("__ANALYSIS_STOPPED__");
     }
     setAiUsageStats((prev) => ({ ...prev, callCount: prev.callCount + 1 }));
     const toNonNegativeInt = (value: unknown) => {
@@ -708,7 +1043,7 @@ export function useGithubAgent(settings?: AgentSettings) {
       return Math.floor(n);
     };
     const extractUsageTokens = (usage: any) => {
-      if (!usage || typeof usage !== 'object') return { input: 0, output: 0 };
+      if (!usage || typeof usage !== "object") return { input: 0, output: 0 };
       const promptTokens = toNonNegativeInt(usage.prompt_tokens);
       const inputTokens = toNonNegativeInt(usage.input_tokens);
       const completionTokens = toNonNegativeInt(usage.completion_tokens);
@@ -727,14 +1062,14 @@ export function useGithubAgent(settings?: AgentSettings) {
       return { input, output };
     };
     try {
-      const res = await axios.post('/api/llm/json', {
+      const res = await axios.post("/api/llm/json", {
         prompt,
         ...(llmModel ? { model: llmModel } : {}),
         ...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
         ...(llmApiKey ? { apiKey: llmApiKey } : {}),
       });
       if (stopRequestedRef.current) {
-        throw new Error('__ANALYSIS_STOPPED__');
+        throw new Error("__ANALYSIS_STOPPED__");
       }
       const data = res.data?.data ?? {};
       const usage = res.data?.usage ?? null;
@@ -748,7 +1083,7 @@ export function useGithubAgent(settings?: AgentSettings) {
       }
 
       if (options?.label) {
-        addLog(`AI 调用完成：${options.label}`, 'thinking', undefined, {
+        addLog(`AI 调用完成：${options.label}`, "thinking", undefined, {
           label: options.label,
           request: jsonSafePreview({ prompt }),
           response: jsonSafePreview(data),
@@ -767,11 +1102,11 @@ export function useGithubAgent(settings?: AgentSettings) {
         }));
       }
       if (options?.label) {
-        addLog(`AI 调用失败：${options.label}`, 'error', undefined, {
+        addLog(`AI 调用失败：${options.label}`, "error", undefined, {
           label: options.label,
           request: jsonSafePreview({ prompt }),
           response: jsonSafePreview({
-            message: error?.message || 'LLM request failed',
+            message: error?.message || "LLM request failed",
             status: error?.response?.status || error?.status || null,
             data: error?.response?.data || null,
           }),
@@ -781,103 +1116,160 @@ export function useGithubAgent(settings?: AgentSettings) {
     }
   };
 
+  /**
+   * 向前端日志队列添加一条格式化的操作记录
+   * @param message 消息标题
+   * @param type 日志类型（思维、信息、成功、错误等）
+   * @param details 详细的执行步骤（可选）
+   * @param aiTrace AI 调用追踪详情（用于查看 Prompt 和 Response，可选）
+   */
   const addLog = (
     message: string,
-    type: LogEntry['type'] = 'info',
+    type: LogEntry["type"] = "info",
     details?: string[],
-    aiTrace?: LogEntry['aiTrace']
+    aiTrace?: LogEntry["aiTrace"],
   ) => {
-    setLogs(prev => [...prev, {
-      id: Math.random().toString(36).substring(7),
-      timestamp: Date.now(),
-      message,
-      type,
-      details,
-      aiTrace
-    }]);
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Math.random().toString(36).substring(7),
+        timestamp: Date.now(),
+        message,
+        type,
+        details,
+        aiTrace,
+      },
+    ]);
   };
 
+  /**
+   * 外部触发的中止请求
+   */
   const stopAnalysis = useCallback(() => {
     if (stopRequestedRef.current) return;
     stopRequestedRef.current = true;
-    addLog('已请求停止分析，将在当前步骤结束后中止。', 'info');
+    addLog("已请求停止分析，将在当前步骤结束后中止。", "info");
   }, []);
 
+  /**
+   * 根据数据源类型返回对应的后端端点
+   * @param sourceType 远程仓库或本地源码
+   */
   const apiBySource = useCallback((sourceType: SourceType) => {
-    if (sourceType === 'local') {
+    if (sourceType === "local") {
       return {
-        validate: '/api/local/validate',
-        tree: '/api/local/tree',
-        content: '/api/local/content',
-        search: '/api/local/search',
+        validate: "/api/local/validate",
+        tree: "/api/local/tree",
+        content: "/api/local/content",
+        search: "/api/local/search",
       };
     }
     return {
-      validate: '/api/github/validate',
-      tree: '/api/github/tree',
-      content: '/api/github/content',
-      search: '/api/github/search',
+      validate: "/api/github/validate",
+      tree: "/api/github/tree",
+      content: "/api/github/content",
+      search: "/api/github/search",
     };
   }, []);
 
-  const sourcePayload = useCallback((sourceType: SourceType, source: string, token?: string) => {
-    if (sourceType === 'local') return { path: source };
-    return { url: source, token };
-  }, []);
+  /**
+   * 构建发送给后端的统一身份/路径载荷
+   * @param sourceType 数据源类型
+   * @param source 仓库 URL 或本地物理路径
+   * @param token GitHub Token
+   */
+  const sourcePayload = useCallback(
+    (sourceType: SourceType, source: string, token?: string) => {
+      if (sourceType === "local") return { path: source };
+      return { url: source, token };
+    },
+    [],
+  );
 
-  const updatePanorama = useCallback((updater: (prev: PanoramaDocState) => PanoramaDocState) => {
-    if (!panoramaRef.current) return;
-    panoramaRef.current = updater(panoramaRef.current);
-    const markdown = buildPanoramaMarkdown(panoramaRef.current);
-    setProjectPanoramaMarkdown(markdown);
-    if (graphRef.current) {
-      const nextGraph = {
-        ...graphRef.current,
-        allFiles: panoramaRef.current.allFiles,
-        callChainRecords: panoramaRef.current.callChain.records,
-        panoramaMarkdown: markdown,
-      };
-      graphRef.current = nextGraph;
-      setGraphData(nextGraph);
-    }
-  }, []);
-
-  const updateGraph = useCallback((updater: (prev: GraphData) => GraphData) => {
-    const base = graphRef.current ?? INITIAL_GRAPH(parseRepoName(repoUrl));
-    const next = updater(base);
-    graphRef.current = next;
-    setGraphData(next);
-    if (panoramaRef.current) {
-      panoramaRef.current.callChain.graph = {
-        nodes: next.nodes.map(n => ({
-          id: n.id,
-          label: n.label,
-          file: n.file,
-          line: n.line,
-          depth: n.depth,
-          description: n.description,
-          httpMethod: n.httpMethod,
-          httpRoute: n.httpRoute,
-        })),
-        edges: next.edges.map(e => ({ source: e.source, target: e.target })),
-      };
+  /**
+   * 原子化更新项目全景图文档（Markdown 状态）
+   * @param updater 更新函数
+   */
+  const updatePanorama = useCallback(
+    (updater: (prev: PanoramaDocState) => PanoramaDocState) => {
+      if (!panoramaRef.current) return;
+      panoramaRef.current = updater(panoramaRef.current);
       const markdown = buildPanoramaMarkdown(panoramaRef.current);
       setProjectPanoramaMarkdown(markdown);
-      graphRef.current = {
-        ...next,
-        allFiles: panoramaRef.current.allFiles,
-        callChainRecords: panoramaRef.current.callChain.records,
-        panoramaMarkdown: markdown,
-      };
-      setGraphData(graphRef.current);
-    }
-  }, [repoUrl]);
+      if (graphRef.current) {
+        const nextGraph = {
+          ...graphRef.current,
+          allFiles: panoramaRef.current.allFiles,
+          callChainRecords: panoramaRef.current.callChain.records,
+          panoramaMarkdown: markdown,
+        };
+        graphRef.current = nextGraph;
+        setGraphData(nextGraph);
+      }
+    },
+    [],
+  );
 
-  const makeNodeId = useCallback((parentNodeId: string | undefined, name: string, depth: number) => {
-    nodeSeqRef.current += 1;
-    return `n_${depth}_${nodeSeqRef.current}_${slugify(parentNodeId || 'root')}_${slugify(name)}`;
-  }, []);
+  /**
+   * 原子化更新图表节点和边的数据（React Flow 态）
+   * 同时会同步更新全景图文档中的 graph 快照
+   * @param updater 更新函数
+   */
+  const updateGraph = useCallback(
+    (updater: (prev: GraphData) => GraphData) => {
+      const base = graphRef.current ?? INITIAL_GRAPH(parseRepoName(repoUrl));
+      const next = updater(base);
+      graphRef.current = next;
+      setGraphData(next);
+      if (panoramaRef.current) {
+        panoramaRef.current.callChain.graph = {
+          nodes: next.nodes.map((n) => ({
+            id: n.id,
+            label: n.label,
+            file: n.file,
+            line: n.line,
+            depth: n.depth,
+            description: n.description,
+            httpMethod: n.httpMethod,
+            httpRoute: n.httpRoute,
+          })),
+          edges: next.edges.map((e) => ({
+            source: e.source,
+            target: e.target,
+          })),
+        };
+        const markdown = buildPanoramaMarkdown(panoramaRef.current);
+        setProjectPanoramaMarkdown(markdown);
+        graphRef.current = {
+          ...next,
+          allFiles: panoramaRef.current.allFiles,
+          callChainRecords: panoramaRef.current.callChain.records,
+          panoramaMarkdown: markdown,
+        };
+        setGraphData(graphRef.current);
+      }
+    },
+    [repoUrl],
+  );
 
+  /**
+   * 根据层级、函数名和父节点生成全局唯一的节点 ID
+   * @param parentNodeId 父节点 ID
+   * @param name 函数名
+   * @param depth 当前深度
+   */
+  const makeNodeId = useCallback(
+    (parentNodeId: string | undefined, name: string, depth: number) => {
+      nodeSeqRef.current += 1;
+      return `n_${depth}_${nodeSeqRef.current}_${slugify(parentNodeId || "root")}_${slugify(name)}`;
+    },
+    [],
+  );
+
+  /**
+   * 更新或插入一个全景图节点数据
+   * @param payload 节点核心属性（名称、文件、逻辑描述、HTTP 路由等）
+   */
   const upsertGraphNode = (payload: {
     id: string;
     label: string;
@@ -894,8 +1286,8 @@ export function useGithubAgent(settings?: AgentSettings) {
     callStatus?: string;
   }) => {
     updateGraph((prev) => {
-      const file = payload.file || 'Unknown';
-      const existingNode = prev.nodes.find(n => n.id === payload.id);
+      const file = payload.file || "Unknown";
+      const existingNode = prev.nodes.find((n) => n.id === payload.id);
       const node: GraphNode = {
         id: payload.id,
         label: payload.label,
@@ -905,13 +1297,13 @@ export function useGithubAgent(settings?: AgentSettings) {
         httpMethod: payload.httpMethod ?? existingNode?.httpMethod,
         httpRoute: payload.httpRoute ?? existingNode?.httpRoute,
         importance: normalizeImportance(payload.importance),
-        description: payload.description || '分析进行中',
-        module: payload.module || existingNode?.module || '',
+        description: payload.description || "分析进行中",
+        module: payload.module || existingNode?.module || "",
         depth: payload.depth,
         drillFlag: payload.drillFlag,
         callStatus: payload.callStatus,
       };
-      const idx = prev.nodes.findIndex(n => n.id === node.id);
+      const idx = prev.nodes.findIndex((n) => n.id === node.id);
       const nextNodes = [...prev.nodes];
       if (idx >= 0) {
         nextNodes[idx] = { ...nextNodes[idx], ...node };
@@ -922,20 +1314,29 @@ export function useGithubAgent(settings?: AgentSettings) {
     });
   };
 
+  /**
+   * 更新或插入一条函数调用边
+   * @param source 调用方节点 ID
+   * @param target 被调用方节点 ID
+   */
   const upsertGraphEdge = (source: string, target: string) => {
     // Edge IDs must not be truncated, otherwise deep call-chain siblings collide
     // and many edges get dropped as "duplicates", causing isolated nodes.
     const edgeId = `e:${source}->${target}`;
     updateGraph((prev) => {
-      if (prev.edges.some(e => e.id === edgeId)) return prev;
+      if (prev.edges.some((e) => e.id === edgeId)) return prev;
       const edge: GraphEdge = { id: edgeId, source, target };
       return { ...prev, edges: [...prev.edges, edge] };
     });
   };
 
+  /**
+   * 将调用链记录（CallChainRecord）的状态同步到图表节点上，确保 UI 与逻辑一致
+   * @param record 分析记录对象
+   */
   const syncCallRecordToGraphNode = (record: CallChainRecord) => {
     updateGraph((prev) => {
-      const idx = prev.nodes.findIndex(n => n.id === record.nodeId);
+      const idx = prev.nodes.findIndex((n) => n.id === record.nodeId);
       if (idx < 0) return prev;
       const nextNodes = [...prev.nodes];
       nextNodes[idx] = {
@@ -950,12 +1351,20 @@ export function useGithubAgent(settings?: AgentSettings) {
     });
   };
 
-  const updateCallRecord = (nodeId: string, patch: Partial<CallChainRecord>) => {
+  /**
+   * 打补丁式更新调用链分析记录，并触发同步更新图表
+   * @param nodeId 节点 ID
+   * @param patch 变更内容
+   */
+  const updateCallRecord = (
+    nodeId: string,
+    patch: Partial<CallChainRecord>,
+  ) => {
     updatePanorama((prev) => ({
       ...prev,
       callChain: {
         ...prev.callChain,
-        records: prev.callChain.records.map(r => {
+        records: prev.callChain.records.map((r) => {
           if (r.nodeId !== nodeId) return r;
           const next = { ...r, ...patch };
           setTimeout(() => syncCallRecordToGraphNode(next), 0);
@@ -965,12 +1374,16 @@ export function useGithubAgent(settings?: AgentSettings) {
     }));
   };
 
+  /**
+   * 追加一条新的调用链记录
+   * @param record 分析记录
+   */
   const appendCallRecord = (record: CallChainRecord) => {
     updatePanorama((prev) => ({
       ...prev,
       callChain: {
         ...prev.callChain,
-        records: prev.callChain.records.some(r => r.nodeId === record.nodeId)
+        records: prev.callChain.records.some((r) => r.nodeId === record.nodeId)
           ? prev.callChain.records
           : [...prev.callChain.records, record],
       },
@@ -978,8 +1391,12 @@ export function useGithubAgent(settings?: AgentSettings) {
     syncCallRecordToGraphNode(record);
   };
 
+  /**
+   * 根据节点 ID 递归向上追溯完整调用路径字符串（如 "main() -> auth() -> login()"）
+   * @param nodeId 起始节点 ID
+   */
   const buildFunctionChainByNodeId = (nodeId?: string) => {
-    if (!nodeId || !panoramaRef.current) return '';
+    if (!nodeId || !panoramaRef.current) return "";
     const records = panoramaRef.current.callChain.records || [];
     const byId = new Map(records.map((r) => [r.nodeId, r] as const));
     const chain: string[] = [];
@@ -990,14 +1407,26 @@ export function useGithubAgent(settings?: AgentSettings) {
       chain.push(`${cur.functionName}()`);
       cur = cur.parentNodeId ? byId.get(cur.parentNodeId) : undefined;
     }
-    return chain.reverse().join(' -> ');
+    return chain.reverse().join(" -> ");
   };
 
-  const fetchContents = async (url: string, paths: string[], token?: string) => {
+  /**
+   * 批量获取（带本地缓存）源码文件内容
+   * @param url 仓库基础路径
+   * @param paths 相对路径列表
+   * @param token 鉴权 Token
+   */
+  const fetchContents = async (
+    url: string,
+    paths: string[],
+    token?: string,
+  ) => {
     if (stopRequestedRef.current) {
-      throw new Error('__ANALYSIS_STOPPED__');
+      throw new Error("__ANALYSIS_STOPPED__");
     }
-    const uniquePaths = Array.from(new Set(paths.map(sanitizeFilePath).filter(Boolean)));
+    const uniquePaths = Array.from(
+      new Set(paths.map(sanitizeFilePath).filter(Boolean)),
+    );
     const missing = uniquePaths.filter((p) => !(p in contentCacheRef.current));
     if (missing.length > 0) {
       const sourceType = sourceTypeRef.current;
@@ -1005,14 +1434,17 @@ export function useGithubAgent(settings?: AgentSettings) {
       const payload = sourcePayload(sourceType, url, token);
       const res = await axios.post(api.content, { ...payload, paths: missing });
       if (stopRequestedRef.current) {
-        throw new Error('__ANALYSIS_STOPPED__');
+        throw new Error("__ANALYSIS_STOPPED__");
       }
       const contents = res.data?.contents || {};
       const errors = res.data?.errors || {};
       for (const p of missing) {
-        const text = typeof contents[p] === 'string' ? contents[p] : '';
-        const hasFailurePlaceholder = text.startsWith('// Failed to fetch file')
-          || text.startsWith('// Could not retrieve content or content is too large');
+        const text = typeof contents[p] === "string" ? contents[p] : "";
+        const hasFailurePlaceholder =
+          text.startsWith("// Failed to fetch file") ||
+          text.startsWith(
+            "// Could not retrieve content or content is too large",
+          );
 
         // Do not cache failures to allow retry on next open.
         if (text && !hasFailurePlaceholder) {
@@ -1022,115 +1454,173 @@ export function useGithubAgent(settings?: AgentSettings) {
         }
 
         if (errors[p]) {
-          addLog(`源码拉取失败: ${p} (${String(errors[p])})`, 'info');
+          addLog(`源码拉取失败: ${p} (${String(errors[p])})`, "info");
         }
       }
     }
     const result: Record<string, string> = {};
-    for (const p of uniquePaths) result[p] = contentCacheRef.current[p] || '';
+    for (const p of uniquePaths) result[p] = contentCacheRef.current[p] || "";
     return result;
   };
 
+  /**
+   * 强制清除已拉取的源码缓存，触发重新请求
+   */
   const clearFileCache = useCallback(() => {
     contentCacheRef.current = {};
   }, []);
 
-  const updateNodeDescription = useCallback((nodeId: string, description: string) => {
-    const nextDescription = String(description ?? '').trim();
-    updateGraph((prev) => {
-      const idx = prev.nodes.findIndex((n) => n.id === nodeId);
-      if (idx < 0) return prev;
-      const nextNodes = [...prev.nodes];
-      nextNodes[idx] = {
-        ...nextNodes[idx],
-        description: nextDescription,
-      };
-      return { ...prev, nodes: nextNodes };
-    });
-  }, [updateGraph, requestJsonFromLlm]);
+  /**
+   * 更新特定节点的架构逻辑描述
+   * @param nodeId 节点 ID
+   * @param description 新的描述文本
+   */
+  const updateNodeDescription = useCallback(
+    (nodeId: string, description: string) => {
+      const nextDescription = String(description ?? "").trim();
+      updateGraph((prev) => {
+        const idx = prev.nodes.findIndex((n) => n.id === nodeId);
+        if (idx < 0) return prev;
+        const nextNodes = [...prev.nodes];
+        nextNodes[idx] = {
+          ...nextNodes[idx],
+          description: nextDescription,
+        };
+        return { ...prev, nodes: nextNodes };
+      });
+    },
+    [updateGraph, requestJsonFromLlm],
+  );
 
-  const hydrateImportedContext = useCallback((importedData: GraphData, markdown?: string) => {
-    const url = importedData.repoUrl || '';
-    const repoName = importedData.repoName || parseRepoName(url || importedData.repoName || 'imported');
-    const allFiles = Array.isArray(importedData.allFiles) ? importedData.allFiles : [];
-    const codeFiles = allFiles.filter((f: string) => {
-      const lower = String(f || '').toLowerCase();
-      return CODE_EXTENSIONS.some(ext => lower.endsWith(ext));
-    });
-    const records = Array.isArray(importedData.callChainRecords) ? importedData.callChainRecords : [];
-    sourceTypeRef.current = /^https?:\/\//i.test(url) ? 'github' : 'local';
+  /**
+   * 将导出的 JSON 全景图数据重新灌入当前状态，用于“离线查看”或“历史追溯”
+   * @param importedData 导入的图表数据
+   * @param markdown 选填的配套 Markdown 文档
+   */
+  const hydrateImportedContext = useCallback(
+    (importedData: GraphData, markdown?: string) => {
+      const url = importedData.repoUrl || "";
+      const repoName =
+        importedData.repoName ||
+        parseRepoName(url || importedData.repoName || "imported");
+      const allFiles = Array.isArray(importedData.allFiles)
+        ? importedData.allFiles
+        : [];
+      const codeFiles = allFiles.filter((f: string) => {
+        const lower = String(f || "").toLowerCase();
+        return CODE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+      });
+      const records = Array.isArray(importedData.callChainRecords)
+        ? importedData.callChainRecords
+        : [];
+      sourceTypeRef.current = /^https?:\/\//i.test(url) ? "github" : "local";
 
-    setRepoUrl(url);
-    graphRef.current = {
-      ...importedData,
-      repoName,
-      repoUrl: url,
-      allFiles,
-      callChainRecords: records,
-    };
-    setGraphData(graphRef.current);
-
-    panoramaRef.current = {
-      metadata: {
-        repoUrl: url,
+      setRepoUrl(url);
+      graphRef.current = {
+        ...importedData,
         repoName,
-        language: importedData.project?.language || 'Unknown',
-        generatedAt: new Date().toISOString(),
-      },
-      summary: importedData.project?.summary || '',
-      allFiles,
-      codeFiles,
-      callChain: {
-        maxDepth: maxDrillDepth,
-        entryPoint: records.find((r) => r.depth === 0)?.file,
-        records: records as CallChainRecord[],
-        graph: {
-          nodes: (importedData.nodes || []).map((n) => ({
-            id: n.id,
-            label: n.label,
-            file: n.file,
-            line: n.line,
-            depth: n.depth,
-            description: n.description,
-            httpMethod: n.httpMethod,
-            httpRoute: n.httpRoute,
-          })),
-          edges: (importedData.edges || []).map((e) => ({ source: e.source, target: e.target })),
+        repoUrl: url,
+        allFiles,
+        callChainRecords: records,
+      };
+      setGraphData(graphRef.current);
+
+      panoramaRef.current = {
+        metadata: {
+          repoUrl: url,
+          repoName,
+          language: importedData.project?.language || "Unknown",
+          generatedAt: new Date().toISOString(),
         },
-      },
-    };
+        summary: importedData.project?.summary || "",
+        allFiles,
+        codeFiles,
+        callChain: {
+          maxDepth: maxDrillDepth,
+          entryPoint: records.find((r) => r.depth === 0)?.file,
+          records: records as CallChainRecord[],
+          graph: {
+            nodes: (importedData.nodes || []).map((n) => ({
+              id: n.id,
+              label: n.label,
+              file: n.file,
+              line: n.line,
+              depth: n.depth,
+              description: n.description,
+              httpMethod: n.httpMethod,
+              httpRoute: n.httpRoute,
+            })),
+            edges: (importedData.edges || []).map((e) => ({
+              source: e.source,
+              target: e.target,
+            })),
+          },
+        },
+      };
 
-    setProjectPanoramaMarkdown(markdown || importedData.panoramaMarkdown || buildPanoramaMarkdown(panoramaRef.current));
-    setStatus('complete');
-    setModuleClassificationFailed(false);
-    setIsReanalyzingModules(false);
-  }, [requestJsonFromLlm]);
+      setProjectPanoramaMarkdown(
+        markdown ||
+          importedData.panoramaMarkdown ||
+          buildPanoramaMarkdown(panoramaRef.current),
+      );
+      setStatus("complete");
+      setModuleClassificationFailed(false);
+      setIsReanalyzingModules(false);
+    },
+    [requestJsonFromLlm],
+  );
 
-  const setImportedAiUsageStats = useCallback((stats?: Partial<AiUsageStats>) => {
-    setAiUsageStats({
-      inputTokens: Number(stats?.inputTokens || 0) || 0,
-      outputTokens: Number(stats?.outputTokens || 0) || 0,
-      callCount: Number(stats?.callCount || 0) || 0,
-    });
-  }, []);
+  /**
+   * 恢复导入数据中的 AI 消耗统计信息
+   * @param stats 统计快照
+   */
+  const setImportedAiUsageStats = useCallback(
+    (stats?: Partial<AiUsageStats>) => {
+      setAiUsageStats({
+        inputTokens: Number(stats?.inputTokens || 0) || 0,
+        outputTokens: Number(stats?.outputTokens || 0) || 0,
+        callCount: Number(stats?.callCount || 0) || 0,
+      });
+    },
+    [],
+  );
 
-  const locateFunctionFile = async (
-    params: {
-      url: string;
-      token?: string;
-      codeFiles: string[];
-      parentFile?: string;
-      parentFunctionName?: string;
-      functionName: string;
-      guessedFile?: string;
-      language: string;
-    }
-  ): Promise<LocateResult> => {
-    const { url, token, codeFiles, parentFile, parentFunctionName, functionName, guessedFile, language } = params;
+  /**
+   * 【核心三步法】定位函数定义所在的文件
+   * 1. 优先尝试 AI 猜测的文件或调用者同文件
+   * 2. 使用 AI 扫描文件列表后给出 Top 3 候选
+   * 3. 最终兜底：使用服务器端源码全量搜索
+   * @param params 定位所需的所有上下文
+   */
+  const locateFunctionFile = async (params: {
+    url: string;
+    token?: string;
+    codeFiles: string[];
+    parentFile?: string;
+    parentFunctionName?: string;
+    functionName: string;
+    guessedFile?: string;
+    language: string;
+  }): Promise<LocateResult> => {
+    const {
+      url,
+      token,
+      codeFiles,
+      parentFile,
+      parentFunctionName,
+      functionName,
+      guessedFile,
+      language,
+    } = params;
     const attempts: string[] = [];
 
-    const aiLocateInCandidates = async (stepLabel: string, candidates: string[]) => {
-      const sanitized = Array.from(new Set(candidates.map(sanitizeFilePath).filter(Boolean)));
+    const aiLocateInCandidates = async (
+      stepLabel: string,
+      candidates: string[],
+    ) => {
+      const sanitized = Array.from(
+        new Set(candidates.map(sanitizeFilePath).filter(Boolean)),
+      );
       if (!sanitized.length) {
         attempts.push(`${stepLabel}-无候选文件可供AI兜底`);
         return null as null | { file: string; content: string; line?: number };
@@ -1138,7 +1628,11 @@ export function useGithubAgent(settings?: AgentSettings) {
       const contents = await fetchContents(url, sanitized, token);
       const payload = sanitized.map((file) => ({
         file,
-        contentSnippet: extractFunctionSnippet(contents[file] || '', functionName, 8000),
+        contentSnippet: extractFunctionSnippet(
+          contents[file] || "",
+          functionName,
+          8000,
+        ),
       }));
       attempts.push(`${stepLabel}-提交AI兜底定位(候选${sanitized.length}个)`);
 
@@ -1147,8 +1641,8 @@ export function useGithubAgent(settings?: AgentSettings) {
 注意：目标函数名可能是限定名（如 TSharkAPI::init），但在 C++ 头文件 class 内只会出现未限定方法名（如 init）。
 
 项目语言：${language}
-调用者函数：${parentFunctionName || '未知'}
-调用者文件：${parentFile || '未知'}
+调用者函数：${parentFunctionName || "未知"}
+调用者文件：${parentFile || "未知"}
 目标函数：${functionName}
 候选文件内容（节选）：
 ${JSON.stringify(payload)}
@@ -1161,39 +1655,52 @@ ${JSON.stringify(payload)}
   "reason": "一句话说明"
 }
 `;
-      const result = await requestJsonFromLlm(prompt, { label: `函数定位AI兜底: ${functionName}` });
-      const file = sanitizeFilePath(result?.file || '');
-      const methodNameHint = String(result?.methodNameHint || '').trim();
+      const result = await requestJsonFromLlm(prompt, {
+        label: `函数定位AI兜底: ${functionName}`,
+      });
+      const file = sanitizeFilePath(result?.file || "");
+      const methodNameHint = String(result?.methodNameHint || "").trim();
       const found = result?.found === true && sanitized.includes(file);
       if (!found || !file) {
-        attempts.push(`${stepLabel}-AI兜底未命中: ${String(result?.reason || '未返回有效文件')}`);
+        attempts.push(
+          `${stepLabel}-AI兜底未命中: ${String(result?.reason || "未返回有效文件")}`,
+        );
         return null;
       }
 
-      const content = contents[file] || '';
-      const line = findFunctionLineNumber(content, functionName)
-        ?? (methodNameHint ? findFunctionLineNumber(content, methodNameHint) : undefined);
-      attempts.push(`${stepLabel}-AI兜底命中: ${file}${line ? `:L${line}` : ''}${result?.reason ? ` (${String(result.reason)})` : ''}`);
+      const content = contents[file] || "";
+      const line =
+        findFunctionLineNumber(content, functionName) ??
+        (methodNameHint
+          ? findFunctionLineNumber(content, methodNameHint)
+          : undefined);
+      attempts.push(
+        `${stepLabel}-AI兜底命中: ${file}${line ? `:L${line}` : ""}${result?.reason ? ` (${String(result.reason)})` : ""}`,
+      );
       return { file, content, line };
     };
 
     const tryFiles = async (stepLabel: string, candidates: string[]) => {
-      const sanitized = Array.from(new Set(candidates.map(sanitizeFilePath).filter(Boolean)));
+      const sanitized = Array.from(
+        new Set(candidates.map(sanitizeFilePath).filter(Boolean)),
+      );
       if (!sanitized.length) {
         attempts.push(`${stepLabel}-无有效候选文件`);
         return null as null | { file: string; content: string; line?: number };
       }
-      const preview = sanitized.slice(0, 6).join(', ');
-      attempts.push(`${stepLabel}-候选(${sanitized.length}): ${preview}${sanitized.length > 6 ? ' ...' : ''}`);
+      const preview = sanitized.slice(0, 6).join(", ");
+      attempts.push(
+        `${stepLabel}-候选(${sanitized.length}): ${preview}${sanitized.length > 6 ? " ..." : ""}`,
+      );
       const contents = await fetchContents(url, sanitized, token);
       let scanned = 0;
       for (const file of sanitized) {
         scanned += 1;
-        const content = contents[file] || '';
+        const content = contents[file] || "";
         if (!content) continue;
         if (fileContainsFunctionDefinition(content, functionName)) {
           const line = findFunctionLineNumber(content, functionName);
-          attempts.push(`${stepLabel}-命中: ${file}${line ? `:L${line}` : ''}`);
+          attempts.push(`${stepLabel}-命中: ${file}${line ? `:L${line}` : ""}`);
           return { file, content, line };
         }
       }
@@ -1202,23 +1709,35 @@ ${JSON.stringify(payload)}
     };
 
     if (guessedFile) {
-      const hit = await tryFiles('step1-猜测文件', [guessedFile]);
-      if (hit) return { file: hit.file, content: hit.content, line: hit.line, attempts };
+      const hit = await tryFiles("step1-猜测文件", [guessedFile]);
+      if (hit)
+        return {
+          file: hit.file,
+          content: hit.content,
+          line: hit.line,
+          attempts,
+        };
     }
 
     if (parentFile) {
-      const sameFileHit = await tryFiles('step1b-同文件兜底', [parentFile]);
-      if (sameFileHit) return { file: sameFileHit.file, content: sameFileHit.content, line: sameFileHit.line, attempts };
+      const sameFileHit = await tryFiles("step1b-同文件兜底", [parentFile]);
+      if (sameFileHit)
+        return {
+          file: sameFileHit.file,
+          content: sameFileHit.content,
+          line: sameFileHit.line,
+          attempts,
+        };
     }
 
-    attempts.push('step2-AI基于文件列表猜测Top3');
+    attempts.push("step2-AI基于文件列表猜测Top3");
     const guessPrompt = `
 你是代码定位助手。请根据函数名、调用上下文与项目代码文件列表，猜测该函数定义最可能所在的 3 个文件（仅返回项目内相对路径）。
 如果目标函数看起来是系统函数或编程语言标准库/第三方库函数（例如 C 标准库、C++ STL、Java SDK、Node/Python 内置库等），请不要猜测项目文件，直接输出系统库标记。
 
 项目语言：${language}
-调用者函数：${parentFunctionName || '未知'}
-调用者文件：${parentFile || '未知'}
+调用者函数：${parentFunctionName || "未知"}
+调用者文件：${parentFile || "未知"}
 目标函数：${functionName}
 代码文件列表（过滤后）：
 ${JSON.stringify(codeFiles.slice(0, 8000))}
@@ -1241,58 +1760,107 @@ ${JSON.stringify(codeFiles.slice(0, 8000))}
   "reason": "系统或库函数"
 }
 `;
-    const guess = await requestJsonFromLlm(guessPrompt, { label: `函数定位猜测Top3: ${functionName}` });
+    const guess = await requestJsonFromLlm(guessPrompt, {
+      label: `函数定位猜测Top3: ${functionName}`,
+    });
     const isSystemOrLibraryFunction =
-      guess?.isSystemOrLibraryFunction === true
-      || String(guess?.systemOrLibraryMarker || '').trim() === '__SYSTEM_OR_LIBRARY_FUNCTION__';
+      guess?.isSystemOrLibraryFunction === true ||
+      String(guess?.systemOrLibraryMarker || "").trim() ===
+        "__SYSTEM_OR_LIBRARY_FUNCTION__";
     if (isSystemOrLibraryFunction) {
-      attempts.push(`step2-命中系统/库函数标记: ${String(guess?.systemOrLibraryReason || guess?.reason || '无说明')}`);
+      attempts.push(
+        `step2-命中系统/库函数标记: ${String(guess?.systemOrLibraryReason || guess?.reason || "无说明")}`,
+      );
       return {
-        file: '',
-        content: '',
+        file: "",
+        content: "",
         line: undefined,
         attempts,
         isSystemOrLibraryFunction: true,
-        systemOrLibraryReason: String(guess?.systemOrLibraryReason || guess?.reason || '识别为系统/库函数'),
+        systemOrLibraryReason: String(
+          guess?.systemOrLibraryReason || guess?.reason || "识别为系统/库函数",
+        ),
       };
     }
-    const top3 = Array.isArray(guess.candidateFiles) ? guess.candidateFiles.slice(0, 3) : [];
-    attempts.push(`step2-AI返回候选: ${top3.length ? top3.join(', ') : '空'}${guess?.reason ? ` (原因: ${String(guess.reason)})` : ''}`);
+    const top3 = Array.isArray(guess.candidateFiles)
+      ? guess.candidateFiles.slice(0, 3)
+      : [];
+    attempts.push(
+      `step2-AI返回候选: ${top3.length ? top3.join(", ") : "空"}${guess?.reason ? ` (原因: ${String(guess.reason)})` : ""}`,
+    );
     if (top3.length) {
-      const hit = await tryFiles('step2-AI猜测Top3校验', top3);
-      if (hit) return { file: hit.file, content: hit.content, line: hit.line, attempts };
+      const hit = await tryFiles("step2-AI猜测Top3校验", top3);
+      if (hit)
+        return {
+          file: hit.file,
+          content: hit.content,
+          line: hit.line,
+          attempts,
+        };
       try {
-        const aiFallbackHit = await aiLocateInCandidates('step2b-AI候选文件内容兜底定位', top3);
-        if (aiFallbackHit) return { file: aiFallbackHit.file, content: aiFallbackHit.content, line: aiFallbackHit.line, attempts };
+        const aiFallbackHit = await aiLocateInCandidates(
+          "step2b-AI候选文件内容兜底定位",
+          top3,
+        );
+        if (aiFallbackHit)
+          return {
+            file: aiFallbackHit.file,
+            content: aiFallbackHit.content,
+            line: aiFallbackHit.line,
+            attempts,
+          };
       } catch (e: any) {
-        attempts.push(`step2b-AI兜底异常: ${e?.message || 'unknown error'}`);
+        attempts.push(`step2b-AI兜底异常: ${e?.message || "unknown error"}`);
       }
     } else {
-      attempts.push('step2-AI未给出可校验候选文件');
+      attempts.push("step2-AI未给出可校验候选文件");
     }
 
-    attempts.push('step3-源码搜索函数定义');
+    attempts.push("step3-源码搜索函数定义");
     try {
       const sourceType = sourceTypeRef.current;
       const api = apiBySource(sourceType);
       const payload = sourcePayload(sourceType, url, token);
-      const searchRes = await axios.post(api.search, { ...payload, query: functionName });
-      const searchFiles = (searchRes.data?.items || []).map((item: any) => item.path).filter(Boolean);
-      attempts.push(`step3-搜索返回候选(${searchFiles.length}): ${searchFiles.slice(0, 6).join(', ')}${searchFiles.length > 6 ? ' ...' : ''}`);
+      const searchRes = await axios.post(api.search, {
+        ...payload,
+        query: functionName,
+      });
+      const searchFiles = (searchRes.data?.items || [])
+        .map((item: any) => item.path)
+        .filter(Boolean);
+      attempts.push(
+        `step3-搜索返回候选(${searchFiles.length}): ${searchFiles.slice(0, 6).join(", ")}${searchFiles.length > 6 ? " ..." : ""}`,
+      );
       if (searchFiles.length) {
-        const hit = await tryFiles('step3-搜索结果校验', searchFiles);
-        if (hit) return { file: hit.file, content: hit.content, line: hit.line, attempts };
+        const hit = await tryFiles("step3-搜索结果校验", searchFiles);
+        if (hit)
+          return {
+            file: hit.file,
+            content: hit.content,
+            line: hit.line,
+            attempts,
+          };
       } else {
-        attempts.push('step3-搜索无结果');
+        attempts.push("step3-搜索无结果");
       }
     } catch (e: any) {
-      attempts.push(`step3-搜索异常: ${e?.message || 'unknown error'}`);
+      attempts.push(`step3-搜索异常: ${e?.message || "unknown error"}`);
     }
 
-    attempts.push('final-定位失败: 所有步骤均未命中函数定义');
-    return { file: '', content: '', line: undefined, attempts, isSystemOrLibraryFunction: false };
+    attempts.push("final-定位失败: 所有步骤均未命中函数定义");
+    return {
+      file: "",
+      content: "",
+      line: undefined,
+      attempts,
+      isSystemOrLibraryFunction: false,
+    };
   };
 
+  /**
+   * 调用 AI 对特定函数的源码片段进行下钻分析，提取职责和关键子调用
+   * @param params 分析参数
+   */
   const analyzeFunctionStep = async (params: {
     language: string;
     filePath: string;
@@ -1301,7 +1869,8 @@ ${JSON.stringify(codeFiles.slice(0, 8000))}
     depth: number;
     isEntry?: boolean;
   }) => {
-    const { language, filePath, fileContent, functionName, depth, isEntry } = params;
+    const { language, filePath, fileContent, functionName, depth, isEntry } =
+      params;
     const fileHead = fileContent.slice(0, 3000);
     const snippet = extractFunctionSnippet(fileContent, functionName, 7000);
     const prompt = `
@@ -1313,7 +1882,7 @@ ${JSON.stringify(codeFiles.slice(0, 8000))}
 2. 每个子节点返回 shouldDrill：-1（叶子或不重要）、0（不确定）、1（值得继续下钻）。
 3. 如果能根据 import/include 或命名推断出子函数定义文件，请填 possibleFile（项目相对路径）。
 4. 描述要简短中文。
-${isEntry ? '5. 这是入口分析步骤，请把当前函数视为主入口函数。' : ''}
+${isEntry ? "5. 这是入口分析步骤，请把当前函数视为主入口函数。" : ""}
 6. 遇到框架启动/分发调用（如 SpringApplication.run、DispatcherServlet、Flask app.run）时，请将其视为“桥接节点”并设置 shouldDrill=1（不要直接作为终点）。
 
 项目语言：${language}
@@ -1345,401 +1914,566 @@ ${snippet}
   ]
 }
 `;
-    return requestJsonFromLlm(prompt, { label: `函数下钻分析 L${depth}: ${functionName}` }) as Promise<LlmFunctionAnalysis>;
+    return requestJsonFromLlm(prompt, {
+      label: `函数下钻分析 L${depth}: ${functionName}`,
+    }) as Promise<LlmFunctionAnalysis>;
   };
 
-  const resolveAndAnalyzeFunctionWithCache = useCallback(async (params: {
-    url: string;
-    token?: string;
-    codeFiles: string[];
-    parentFile?: string;
-    parentFunctionName?: string;
-    functionName: string;
-    guessedFile?: string;
-    language: string;
-    depth: number;
-    isEntry?: boolean;
-  }) => {
-    const {
-      url, token, codeFiles, parentFile, parentFunctionName, functionName, guessedFile, language, depth, isEntry,
-    } = params;
+  /**
+   * 封装“定位 + 分析”流程，并集成各层级的 LRU 缓存，极大减少重复 AI 调用
+   * @param params 组合分析参数
+   */
+  const resolveAndAnalyzeFunctionWithCache = useCallback(
+    async (params: {
+      url: string;
+      token?: string;
+      codeFiles: string[];
+      parentFile?: string;
+      parentFunctionName?: string;
+      functionName: string;
+      guessedFile?: string;
+      language: string;
+      depth: number;
+      isEntry?: boolean;
+    }) => {
+      const {
+        url,
+        token,
+        codeFiles,
+        parentFile,
+        parentFunctionName,
+        functionName,
+        guessedFile,
+        language,
+        depth,
+        isEntry,
+      } = params;
 
-    const isPython = String(language || '').toLowerCase().includes('python');
-    const shouldUsePythonEntryBypass = isPython
-      && !!guessedFile
-      && (
-        isEntry === true
-        || functionName === '__module_entry__'
-        || isPythonMainGuardName(functionName)
-      );
+      const isPython = String(language || "")
+        .toLowerCase()
+        .includes("python");
+      const shouldUsePythonEntryBypass =
+        isPython &&
+        !!guessedFile &&
+        (isEntry === true ||
+          functionName === "__module_entry__" ||
+          isPythonMainGuardName(functionName));
 
-    const locateCacheKey = [
-      language,
-      functionName,
-      guessedFile || '',
-      parentFile || '',
-      parentFunctionName || '',
-    ].join('|');
+      const locateCacheKey = [
+        language,
+        functionName,
+        guessedFile || "",
+        parentFile || "",
+        parentFunctionName || "",
+      ].join("|");
 
-    let locateHit = false;
-    let located: LocateResult = {
-      file: '',
-      content: '',
-      line: undefined,
-      attempts: [],
-      isSystemOrLibraryFunction: false,
-    };
-
-    if (shouldUsePythonEntryBypass) {
-      const sanitizedFile = sanitizeFilePath(guessedFile);
-      const contents = await fetchContents(url, [sanitizedFile], token);
-      const content = contents[sanitizedFile] || '';
-      located = {
-        file: sanitizedFile,
-        content,
-        line: functionName === '__module_entry__'
-          ? findPythonMainGuardLine(content)
-          : (findFunctionLineNumber(content, functionName) ?? findPythonMainGuardLine(content)),
-        attempts: ['step0-python-entry-bypass: 入口文件直读分析'],
+      let locateHit = false;
+      let located: LocateResult = {
+        file: "",
+        content: "",
+        line: undefined,
+        attempts: [],
         isSystemOrLibraryFunction: false,
       };
-    } else {
-      const cachedLocate = functionLocateCacheRef.current[locateCacheKey];
-      if (cachedLocate) {
-        locateHit = true;
-        if (cachedLocate.file) {
-          const contents = await fetchContents(url, [cachedLocate.file], token);
-          located = {
-            file: cachedLocate.file,
-            content: contents[cachedLocate.file] || '',
-            line: findFunctionLineNumber(contents[cachedLocate.file] || '', functionName),
-            attempts: [...cachedLocate.attempts, 'cache-hit: locate'],
-            isSystemOrLibraryFunction: cachedLocate.isSystemOrLibraryFunction === true,
-            systemOrLibraryReason: cachedLocate.systemOrLibraryReason,
-          };
+
+      if (shouldUsePythonEntryBypass) {
+        const sanitizedFile = sanitizeFilePath(guessedFile);
+        const contents = await fetchContents(url, [sanitizedFile], token);
+        const content = contents[sanitizedFile] || "";
+        located = {
+          file: sanitizedFile,
+          content,
+          line:
+            functionName === "__module_entry__"
+              ? findPythonMainGuardLine(content)
+              : (findFunctionLineNumber(content, functionName) ??
+                findPythonMainGuardLine(content)),
+          attempts: ["step0-python-entry-bypass: 入口文件直读分析"],
+          isSystemOrLibraryFunction: false,
+        };
+      } else {
+        const cachedLocate = functionLocateCacheRef.current[locateCacheKey];
+        if (cachedLocate) {
+          locateHit = true;
+          if (cachedLocate.file) {
+            const contents = await fetchContents(
+              url,
+              [cachedLocate.file],
+              token,
+            );
+            located = {
+              file: cachedLocate.file,
+              content: contents[cachedLocate.file] || "",
+              line: findFunctionLineNumber(
+                contents[cachedLocate.file] || "",
+                functionName,
+              ),
+              attempts: [...cachedLocate.attempts, "cache-hit: locate"],
+              isSystemOrLibraryFunction:
+                cachedLocate.isSystemOrLibraryFunction === true,
+              systemOrLibraryReason: cachedLocate.systemOrLibraryReason,
+            };
+          } else {
+            located = {
+              file: "",
+              content: "",
+              line: undefined,
+              attempts: [...cachedLocate.attempts, "cache-hit: locate-miss"],
+              isSystemOrLibraryFunction:
+                cachedLocate.isSystemOrLibraryFunction === true,
+              systemOrLibraryReason: cachedLocate.systemOrLibraryReason,
+            };
+          }
         } else {
-          located = {
-            file: '',
-            content: '',
-            line: undefined,
-            attempts: [...cachedLocate.attempts, 'cache-hit: locate-miss'],
-            isSystemOrLibraryFunction: cachedLocate.isSystemOrLibraryFunction === true,
-            systemOrLibraryReason: cachedLocate.systemOrLibraryReason,
+          located = await locateFunctionFile({
+            url,
+            token,
+            codeFiles,
+            parentFile,
+            parentFunctionName,
+            functionName,
+            guessedFile,
+            language,
+          });
+          functionLocateCacheRef.current[locateCacheKey] = {
+            file: located.file || "",
+            attempts: located.attempts || [],
+            isSystemOrLibraryFunction:
+              located.isSystemOrLibraryFunction === true,
+            systemOrLibraryReason: located.systemOrLibraryReason,
           };
         }
-      } else {
-        located = await locateFunctionFile({
-          url,
-          token,
-          codeFiles,
-          parentFile,
-          parentFunctionName,
-          functionName,
-          guessedFile,
-          language,
-        });
-        functionLocateCacheRef.current[locateCacheKey] = {
-          file: located.file || '',
-          attempts: located.attempts || [],
-          isSystemOrLibraryFunction: located.isSystemOrLibraryFunction === true,
-          systemOrLibraryReason: located.systemOrLibraryReason,
+      }
+
+      if (located.isSystemOrLibraryFunction) {
+        return {
+          located,
+          analyzed: null as LlmFunctionAnalysis | null,
+          cache: { locateHit, drillHit: false },
         };
       }
-    }
 
-    if (located.isSystemOrLibraryFunction) {
-      return { located, analyzed: null as LlmFunctionAnalysis | null, cache: { locateHit, drillHit: false } };
-    }
-
-    if (!located.file || !located.content) {
-      return { located, analyzed: null as LlmFunctionAnalysis | null, cache: { locateHit, drillHit: false } };
-    }
-
-    const drillCacheKey = [language, located.file, functionName].join('|');
-    const cachedDrill = functionDrillCacheRef.current[drillCacheKey];
-    if (cachedDrill) {
-      return {
-        located: { ...located, file: cachedDrill.file },
-        analyzed: cachedDrill.analysis,
-        cache: { locateHit, drillHit: true },
-      };
-    }
-
-    const analyzed = await analyzeFunctionStep({
-      language,
-      filePath: located.file,
-      fileContent: located.content,
-      functionName,
-      depth,
-      isEntry,
-    });
-
-    functionDrillCacheRef.current[drillCacheKey] = {
-      file: located.file,
-      analysis: analyzed,
-    };
-
-    return { located, analyzed, cache: { locateHit, drillHit: false } };
-  }, [analyzeFunctionStep]);
-
-  const discoverSpringBootBridgeChildren = useCallback(async (ctx: FrameworkBridgeContext): Promise<FrameworkBridgeChild[]> => {
-    const maxChildren = Math.max(1, ctx.maxChildren || maxChildCallsPerFunction);
-    const javaFiles = (ctx.codeFiles || []).filter((f) => String(f || '').toLowerCase().endsWith('.java'));
-    if (!javaFiles.length) return [];
-
-    const extractAnnoPath = (annoText: string) => {
-      const pathNamed = annoText.match(/\b(?:path|value)\s*=\s*["']([^"']+)["']/);
-      if (pathNamed?.[1]) return normalizeHttpRoute(pathNamed[1]);
-      const firstArg = annoText.match(/\(\s*["']([^"']+)["']/);
-      if (firstArg?.[1]) return normalizeHttpRoute(firstArg[1]);
-      return '';
-    };
-
-    const extractRequestMappingMethod = (annoText: string) => {
-      const map: Record<string, string> = {
-        GET: 'GET',
-        POST: 'POST',
-        PUT: 'PUT',
-        DELETE: 'DELETE',
-        PATCH: 'PATCH',
-      };
-      const byExplicit = annoText.match(/RequestMethod\.(GET|POST|PUT|DELETE|PATCH)/i);
-      if (byExplicit?.[1]) return map[byExplicit[1].toUpperCase()] || undefined;
-      return undefined;
-    };
-
-    const controllerFiles = javaFiles.filter((f) => /(^|\/)(controller|api)(\/|$)/i.test(f) || /Controller\.java$/i.test(f));
-    const runnerFiles = javaFiles.filter((f) => /(Application|Runner|Startup)/i.test(f));
-    const scanFiles = Array.from(new Set([...controllerFiles, ...runnerFiles, ...javaFiles])).slice(0, 120);
-    const contentMap = await fetchContents(ctx.url, scanFiles, ctx.token);
-
-    const results: FrameworkBridgeChild[] = [];
-    const seen = new Set<string>();
-    const mappingAnno = /@(RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping)\b/;
-    const methodDef = /^\s*(?:public|protected|private)\s+(?:static\s+)?(?:[\w<>\[\],.?]+\s+)+([A-Za-z_]\w*)\s*\([^;]*\)\s*(?:throws\s+[^{]+)?\{/;
-
-    for (const file of scanFiles) {
-      if (results.length >= maxChildren) break;
-      const content = contentMap[file] || '';
-      if (!content) continue;
-
-      const isController = /@(RestController|Controller)\b/.test(content) || /Controller\.java$/i.test(file);
-      const classMatch = content.match(/\bclass\s+([A-Za-z_]\w*)\b/);
-      const className = classMatch?.[1] || file.split('/').pop()?.replace(/\.java$/i, '') || 'UnknownClass';
-      const classMappingMatch = content.match(/@RequestMapping\s*\(([\s\S]*?)\)\s*(?:public\s+)?class\b/);
-      const classBasePath = classMappingMatch?.[1] ? extractAnnoPath(classMappingMatch[1]) : '';
-      const lines = content.split(/\r?\n/);
-
-      if (isController) {
-        for (let i = 0; i < lines.length; i += 1) {
-          const line = lines[i];
-          const methodMatch = line.match(methodDef);
-          if (!methodMatch) continue;
-
-          const windowStart = Math.max(0, i - 10);
-          const annText = lines.slice(windowStart, i + 1).join('\n');
-          if (!mappingAnno.test(annText)) continue;
-
-          const methodName = methodMatch[1];
-          const signature = `${file}#${className}.${methodName}`;
-          if (seen.has(signature)) continue;
-          seen.add(signature);
-
-          const getMatch = annText.match(/@GetMapping\s*\(([\s\S]*?)\)/);
-          const postMatch = annText.match(/@PostMapping\s*\(([\s\S]*?)\)/);
-          const putMatch = annText.match(/@PutMapping\s*\(([\s\S]*?)\)/);
-          const deleteMatch = annText.match(/@DeleteMapping\s*\(([\s\S]*?)\)/);
-          const patchMatch = annText.match(/@PatchMapping\s*\(([\s\S]*?)\)/);
-          const reqMatch = annText.match(/@RequestMapping\s*\(([\s\S]*?)\)/);
-
-          let method: string | undefined;
-          let route = '';
-          if (getMatch?.[1]) { method = 'GET'; route = extractAnnoPath(getMatch[1]); }
-          else if (postMatch?.[1]) { method = 'POST'; route = extractAnnoPath(postMatch[1]); }
-          else if (putMatch?.[1]) { method = 'PUT'; route = extractAnnoPath(putMatch[1]); }
-          else if (deleteMatch?.[1]) { method = 'DELETE'; route = extractAnnoPath(deleteMatch[1]); }
-          else if (patchMatch?.[1]) { method = 'PATCH'; route = extractAnnoPath(patchMatch[1]); }
-          else if (reqMatch?.[1]) {
-            method = extractRequestMappingMethod(reqMatch[1]);
-            route = extractAnnoPath(reqMatch[1]);
-          }
-
-          const httpRoute = mergeHttpRoutes(classBasePath, route);
-          results.push({
-            name: `${className}.${methodName}`,
-            type: 'method',
-            description: 'Spring Web 业务入口（HTTP 请求处理）',
-            importance: 'high',
-            shouldDrill: 1,
-            possibleFile: file,
-            httpMethod: method,
-            httpRoute: httpRoute || undefined,
-          });
-          if (results.length >= maxChildren) break;
-        }
+      if (!located.file || !located.content) {
+        return {
+          located,
+          analyzed: null as LlmFunctionAnalysis | null,
+          cache: { locateHit, drillHit: false },
+        };
       }
-    }
 
-    if (results.length < maxChildren) {
+      const drillCacheKey = [language, located.file, functionName].join("|");
+      const cachedDrill = functionDrillCacheRef.current[drillCacheKey];
+      if (cachedDrill) {
+        return {
+          located: { ...located, file: cachedDrill.file },
+          analyzed: cachedDrill.analysis,
+          cache: { locateHit, drillHit: true },
+        };
+      }
+
+      const analyzed = await analyzeFunctionStep({
+        language,
+        filePath: located.file,
+        fileContent: located.content,
+        functionName,
+        depth,
+        isEntry,
+      });
+
+      functionDrillCacheRef.current[drillCacheKey] = {
+        file: located.file,
+        analysis: analyzed,
+      };
+
+      return { located, analyzed, cache: { locateHit, drillHit: false } };
+    },
+    [analyzeFunctionStep],
+  );
+
+  /**
+   * SpringBoot 专用识别策略：通过扫描 Controller 注解发现 Web 入口
+   * @param ctx 桥接上下文
+   */
+  const discoverSpringBootBridgeChildren = useCallback(
+    async (ctx: FrameworkBridgeContext): Promise<FrameworkBridgeChild[]> => {
+      const maxChildren = Math.max(
+        1,
+        ctx.maxChildren || maxChildCallsPerFunction,
+      );
+      const javaFiles = (ctx.codeFiles || []).filter((f) =>
+        String(f || "")
+          .toLowerCase()
+          .endsWith(".java"),
+      );
+      if (!javaFiles.length) return [];
+
+      const extractAnnoPath = (annoText: string) => {
+        const pathNamed = annoText.match(
+          /\b(?:path|value)\s*=\s*["']([^"']+)["']/,
+        );
+        if (pathNamed?.[1]) return normalizeHttpRoute(pathNamed[1]);
+        const firstArg = annoText.match(/\(\s*["']([^"']+)["']/);
+        if (firstArg?.[1]) return normalizeHttpRoute(firstArg[1]);
+        return "";
+      };
+
+      const extractRequestMappingMethod = (annoText: string) => {
+        const map: Record<string, string> = {
+          GET: "GET",
+          POST: "POST",
+          PUT: "PUT",
+          DELETE: "DELETE",
+          PATCH: "PATCH",
+        };
+        const byExplicit = annoText.match(
+          /RequestMethod\.(GET|POST|PUT|DELETE|PATCH)/i,
+        );
+        if (byExplicit?.[1])
+          return map[byExplicit[1].toUpperCase()] || undefined;
+        return undefined;
+      };
+
+      const controllerFiles = javaFiles.filter(
+        (f) =>
+          /(^|\/)(controller|api)(\/|$)/i.test(f) ||
+          /Controller\.java$/i.test(f),
+      );
+      const runnerFiles = javaFiles.filter((f) =>
+        /(Application|Runner|Startup)/i.test(f),
+      );
+      const scanFiles = Array.from(
+        new Set([...controllerFiles, ...runnerFiles, ...javaFiles]),
+      ).slice(0, 120);
+      const contentMap = await fetchContents(ctx.url, scanFiles, ctx.token);
+
+      const results: FrameworkBridgeChild[] = [];
+      const seen = new Set<string>();
+      const mappingAnno =
+        /@(RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping)\b/;
+      const methodDef =
+        /^\s*(?:public|protected|private)\s+(?:static\s+)?(?:[\w<>\[\],.?]+\s+)+([A-Za-z_]\w*)\s*\([^;]*\)\s*(?:throws\s+[^{]+)?\{/;
+
       for (const file of scanFiles) {
         if (results.length >= maxChildren) break;
-        const content = contentMap[file] || '';
+        const content = contentMap[file] || "";
         if (!content) continue;
-        if (!/(implements\s+[^{;]*(CommandLineRunner|ApplicationRunner)|@EventListener\b|@Scheduled\b)/.test(content)) continue;
 
+        const isController =
+          /@(RestController|Controller)\b/.test(content) ||
+          /Controller\.java$/i.test(file);
         const classMatch = content.match(/\bclass\s+([A-Za-z_]\w*)\b/);
-        const className = classMatch?.[1] || file.split('/').pop()?.replace(/\.java$/i, '') || 'UnknownClass';
+        const className =
+          classMatch?.[1] ||
+          file
+            .split("/")
+            .pop()
+            ?.replace(/\.java$/i, "") ||
+          "UnknownClass";
+        const classMappingMatch = content.match(
+          /@RequestMapping\s*\(([\s\S]*?)\)\s*(?:public\s+)?class\b/,
+        );
+        const classBasePath = classMappingMatch?.[1]
+          ? extractAnnoPath(classMappingMatch[1])
+          : "";
         const lines = content.split(/\r?\n/);
-        for (const line of lines) {
-          const methodMatch = line.match(methodDef);
-          if (!methodMatch) continue;
-          const methodName = methodMatch[1];
-          if (methodName !== 'run') continue;
 
-          const signature = `${file}#${className}.${methodName}`;
+        if (isController) {
+          for (let i = 0; i < lines.length; i += 1) {
+            const line = lines[i];
+            const methodMatch = line.match(methodDef);
+            if (!methodMatch) continue;
+
+            const windowStart = Math.max(0, i - 10);
+            const annText = lines.slice(windowStart, i + 1).join("\n");
+            if (!mappingAnno.test(annText)) continue;
+
+            const methodName = methodMatch[1];
+            const signature = `${file}#${className}.${methodName}`;
+            if (seen.has(signature)) continue;
+            seen.add(signature);
+
+            const getMatch = annText.match(/@GetMapping\s*\(([\s\S]*?)\)/);
+            const postMatch = annText.match(/@PostMapping\s*\(([\s\S]*?)\)/);
+            const putMatch = annText.match(/@PutMapping\s*\(([\s\S]*?)\)/);
+            const deleteMatch = annText.match(
+              /@DeleteMapping\s*\(([\s\S]*?)\)/,
+            );
+            const patchMatch = annText.match(/@PatchMapping\s*\(([\s\S]*?)\)/);
+            const reqMatch = annText.match(/@RequestMapping\s*\(([\s\S]*?)\)/);
+
+            let method: string | undefined;
+            let route = "";
+            if (getMatch?.[1]) {
+              method = "GET";
+              route = extractAnnoPath(getMatch[1]);
+            } else if (postMatch?.[1]) {
+              method = "POST";
+              route = extractAnnoPath(postMatch[1]);
+            } else if (putMatch?.[1]) {
+              method = "PUT";
+              route = extractAnnoPath(putMatch[1]);
+            } else if (deleteMatch?.[1]) {
+              method = "DELETE";
+              route = extractAnnoPath(deleteMatch[1]);
+            } else if (patchMatch?.[1]) {
+              method = "PATCH";
+              route = extractAnnoPath(patchMatch[1]);
+            } else if (reqMatch?.[1]) {
+              method = extractRequestMappingMethod(reqMatch[1]);
+              route = extractAnnoPath(reqMatch[1]);
+            }
+
+            const httpRoute = mergeHttpRoutes(classBasePath, route);
+            results.push({
+              name: `${className}.${methodName}`,
+              type: "method",
+              description: "Spring Web 业务入口（HTTP 请求处理）",
+              importance: "high",
+              shouldDrill: 1,
+              possibleFile: file,
+              httpMethod: method,
+              httpRoute: httpRoute || undefined,
+            });
+            if (results.length >= maxChildren) break;
+          }
+        }
+      }
+
+      if (results.length < maxChildren) {
+        for (const file of scanFiles) {
+          if (results.length >= maxChildren) break;
+          const content = contentMap[file] || "";
+          if (!content) continue;
+          if (
+            !/(implements\s+[^{;]*(CommandLineRunner|ApplicationRunner)|@EventListener\b|@Scheduled\b)/.test(
+              content,
+            )
+          )
+            continue;
+
+          const classMatch = content.match(/\bclass\s+([A-Za-z_]\w*)\b/);
+          const className =
+            classMatch?.[1] ||
+            file
+              .split("/")
+              .pop()
+              ?.replace(/\.java$/i, "") ||
+            "UnknownClass";
+          const lines = content.split(/\r?\n/);
+          for (const line of lines) {
+            const methodMatch = line.match(methodDef);
+            if (!methodMatch) continue;
+            const methodName = methodMatch[1];
+            if (methodName !== "run") continue;
+
+            const signature = `${file}#${className}.${methodName}`;
+            if (seen.has(signature)) continue;
+            seen.add(signature);
+            results.push({
+              name: `${className}.${methodName}`,
+              type: "method",
+              description: "Spring 启动后业务入口（Runner）",
+              importance: "high",
+              shouldDrill: 1,
+              possibleFile: file,
+            });
+            if (results.length >= maxChildren) break;
+          }
+        }
+      }
+
+      return results.slice(0, maxChildren);
+    },
+    [fetchContents, maxChildCallsPerFunction],
+  );
+
+  /**
+   * Flask 专用识别策略：通过扫描 @app.route 装饰器发现 Web 入口
+   * @param ctx 桥接上下文
+   */
+  const discoverFlaskBridgeChildren = useCallback(
+    async (ctx: FrameworkBridgeContext): Promise<FrameworkBridgeChild[]> => {
+      const maxChildren = Math.max(
+        1,
+        ctx.maxChildren || maxChildCallsPerFunction,
+      );
+      const pyFiles = (ctx.codeFiles || []).filter((f) =>
+        String(f || "")
+          .toLowerCase()
+          .endsWith(".py"),
+      );
+      if (!pyFiles.length) return [];
+
+      const priorityFiles = pyFiles.filter((f) =>
+        /(app|main|server|routes|views)\.py$/i.test(f),
+      );
+      const scanFiles = Array.from(
+        new Set([...priorityFiles, ...pyFiles]),
+      ).slice(0, 120);
+      const contentMap = await fetchContents(ctx.url, scanFiles, ctx.token);
+
+      const results: FrameworkBridgeChild[] = [];
+      const seen = new Set<string>();
+      const defRegex = /^\s*def\s+([A-Za-z_]\w*)\s*\(/;
+
+      for (const file of scanFiles) {
+        if (results.length >= maxChildren) break;
+        const content = contentMap[file] || "";
+        if (!content) continue;
+
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i += 1) {
+          if (results.length >= maxChildren) break;
+          const defMatch = lines[i].match(defRegex);
+          if (!defMatch) continue;
+
+          const fnName = defMatch[1];
+          const windowStart = Math.max(0, i - 12);
+          const decoratorText = lines.slice(windowStart, i).join("\n");
+          const routeMatch = decoratorText.match(
+            /@([A-Za-z_]\w*)?\.?route\s*\(([\s\S]*?)\)/m,
+          );
+          if (!routeMatch) continue;
+
+          const args = routeMatch[2] || "";
+          const pathMatch = args.match(/["']([^"']+)["']/);
+          const methodsMatch = args.match(/\bmethods\s*=\s*\[([^\]]+)\]/);
+          const methods = methodsMatch?.[1]
+            ? Array.from(methodsMatch[1].matchAll(/["']([A-Za-z]+)["']/g)).map(
+                (m) => m[1].toUpperCase(),
+              )
+            : [];
+
+          const httpRoute = pathMatch?.[1]
+            ? normalizeHttpRoute(pathMatch[1])
+            : undefined;
+          const httpMethod = methods.length ? methods.join(",") : "GET";
+          const signature = `${file}#${fnName}`;
           if (seen.has(signature)) continue;
           seen.add(signature);
+
           results.push({
-            name: `${className}.${methodName}`,
-            type: 'method',
-            description: 'Spring 启动后业务入口（Runner）',
-            importance: 'high',
+            name: fnName,
+            type: "method",
+            description: "Flask 业务入口（HTTP 请求处理）",
+            importance: "high",
             shouldDrill: 1,
             possibleFile: file,
+            httpMethod,
+            httpRoute,
           });
-          if (results.length >= maxChildren) break;
         }
       }
-    }
 
-    return results.slice(0, maxChildren);
-  }, [fetchContents, maxChildCallsPerFunction]);
-
-  const discoverFlaskBridgeChildren = useCallback(async (ctx: FrameworkBridgeContext): Promise<FrameworkBridgeChild[]> => {
-    const maxChildren = Math.max(1, ctx.maxChildren || maxChildCallsPerFunction);
-    const pyFiles = (ctx.codeFiles || []).filter((f) => String(f || '').toLowerCase().endsWith('.py'));
-    if (!pyFiles.length) return [];
-
-    const priorityFiles = pyFiles.filter((f) => /(app|main|server|routes|views)\.py$/i.test(f));
-    const scanFiles = Array.from(new Set([...priorityFiles, ...pyFiles])).slice(0, 120);
-    const contentMap = await fetchContents(ctx.url, scanFiles, ctx.token);
-
-    const results: FrameworkBridgeChild[] = [];
-    const seen = new Set<string>();
-    const defRegex = /^\s*def\s+([A-Za-z_]\w*)\s*\(/;
-
-    for (const file of scanFiles) {
-      if (results.length >= maxChildren) break;
-      const content = contentMap[file] || '';
-      if (!content) continue;
-
-      const lines = content.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i += 1) {
-        if (results.length >= maxChildren) break;
-        const defMatch = lines[i].match(defRegex);
-        if (!defMatch) continue;
-
-        const fnName = defMatch[1];
-        const windowStart = Math.max(0, i - 12);
-        const decoratorText = lines.slice(windowStart, i).join('\n');
-        const routeMatch = decoratorText.match(/@([A-Za-z_]\w*)?\.?route\s*\(([\s\S]*?)\)/m);
-        if (!routeMatch) continue;
-
-        const args = routeMatch[2] || '';
-        const pathMatch = args.match(/["']([^"']+)["']/);
-        const methodsMatch = args.match(/\bmethods\s*=\s*\[([^\]]+)\]/);
-        const methods = methodsMatch?.[1]
-          ? Array.from(methodsMatch[1].matchAll(/["']([A-Za-z]+)["']/g)).map((m) => m[1].toUpperCase())
-          : [];
-
-        const httpRoute = pathMatch?.[1] ? normalizeHttpRoute(pathMatch[1]) : undefined;
-        const httpMethod = methods.length ? methods.join(',') : 'GET';
-        const signature = `${file}#${fnName}`;
-        if (seen.has(signature)) continue;
-        seen.add(signature);
-
-        results.push({
-          name: fnName,
-          type: 'method',
-          description: 'Flask 业务入口（HTTP 请求处理）',
-          importance: 'high',
-          shouldDrill: 1,
-          possibleFile: file,
-          httpMethod,
-          httpRoute,
-        });
-      }
-    }
-
-    return results.slice(0, maxChildren);
-  }, [fetchContents, maxChildCallsPerFunction]);
+      return results.slice(0, maxChildren);
+    },
+    [fetchContents, maxChildCallsPerFunction],
+  );
 
   // Add new framework bridges here (e.g. Django, NestJS, ASP.NET) without touching drill pipeline logic.
-  const frameworkBridgeStrategies = useMemo<FrameworkBridgeStrategy[]>(() => ([
-    {
-      id: 'java_spring_boot_runtime_bridge',
-      name: 'Java Spring Boot 框架桥接',
-      match: (ctx) => {
-        const language = String(ctx.language || '').toLowerCase();
-        if (!language.includes('java')) return false;
-        const functionName = String(ctx.functionName || '').toLowerCase();
-        const reason = String(ctx.reason || '').toLowerCase();
-        if (functionName.includes('springapplication.run')) return true;
-        if (functionName.includes('dispatcherservlet') || functionName.includes('dofilter')) {
-          return reason.includes('spring') || reason.includes('framework');
-        }
-        return false;
+  const frameworkBridgeStrategies = useMemo<FrameworkBridgeStrategy[]>(
+    () => [
+      {
+        id: "java_spring_boot_runtime_bridge",
+        name: "Java Spring Boot 框架桥接",
+        match: (ctx) => {
+          const language = String(ctx.language || "").toLowerCase();
+          if (!language.includes("java")) return false;
+          const functionName = String(ctx.functionName || "").toLowerCase();
+          const reason = String(ctx.reason || "").toLowerCase();
+          if (functionName.includes("springapplication.run")) return true;
+          if (
+            functionName.includes("dispatcherservlet") ||
+            functionName.includes("dofilter")
+          ) {
+            return reason.includes("spring") || reason.includes("framework");
+          }
+          return false;
+        },
+        discover: discoverSpringBootBridgeChildren,
       },
-      discover: discoverSpringBootBridgeChildren,
-    },
-    {
-      id: 'python_flask_runtime_bridge',
-      name: 'Python Flask 框架桥接',
-      match: (ctx) => {
-        const language = String(ctx.language || '').toLowerCase();
-        if (!language.includes('python')) return false;
-        const functionName = String(ctx.functionName || '').toLowerCase();
-        const reason = String(ctx.reason || '').toLowerCase();
-        if (functionName.includes('app.run') || functionName.includes('flask.run')) return true;
-        if (functionName.includes('dispatch_request') || functionName.includes('wsgi_app')) {
-          return reason.includes('flask') || reason.includes('werkzeug') || reason.includes('framework');
-        }
-        return reason.includes('flask') && functionName.includes('run');
+      {
+        id: "python_flask_runtime_bridge",
+        name: "Python Flask 框架桥接",
+        match: (ctx) => {
+          const language = String(ctx.language || "").toLowerCase();
+          if (!language.includes("python")) return false;
+          const functionName = String(ctx.functionName || "").toLowerCase();
+          const reason = String(ctx.reason || "").toLowerCase();
+          if (
+            functionName.includes("app.run") ||
+            functionName.includes("flask.run")
+          )
+            return true;
+          if (
+            functionName.includes("dispatch_request") ||
+            functionName.includes("wsgi_app")
+          ) {
+            return (
+              reason.includes("flask") ||
+              reason.includes("werkzeug") ||
+              reason.includes("framework")
+            );
+          }
+          return reason.includes("flask") && functionName.includes("run");
+        },
+        discover: discoverFlaskBridgeChildren,
       },
-      discover: discoverFlaskBridgeChildren,
-    },
-  ]), [discoverFlaskBridgeChildren, discoverSpringBootBridgeChildren]);
+    ],
+    [discoverFlaskBridgeChildren, discoverSpringBootBridgeChildren],
+  );
 
-  const tryBridgeFrameworkCall = useCallback(async (params: {
-    language: string;
-    functionName: string;
-    reason?: string;
-    url: string;
-    token?: string;
-    codeFiles: string[];
-    maxChildren?: number;
-  }) => {
-    const ctx: FrameworkBridgeContext = {
-      language: params.language,
-      functionName: params.functionName,
-      reason: params.reason,
-      url: params.url,
-      token: params.token,
-      codeFiles: params.codeFiles || [],
-      maxChildren: Math.max(1, params.maxChildren ?? maxChildCallsPerFunction),
-    };
+  /**
+   * 尝试使用注册的框架桥接策略来发现隐藏的业务入口（如通过框架启动逻辑找到 API 控制器）
+   * @param params 框架发现参数
+   */
+  const tryBridgeFrameworkCall = useCallback(
+    async (params: {
+      language: string;
+      functionName: string;
+      reason?: string;
+      url: string;
+      token?: string;
+      codeFiles: string[];
+      maxChildren?: number;
+    }) => {
+      const ctx: FrameworkBridgeContext = {
+        language: params.language,
+        functionName: params.functionName,
+        reason: params.reason,
+        url: params.url,
+        token: params.token,
+        codeFiles: params.codeFiles || [],
+        maxChildren: Math.max(
+          1,
+          params.maxChildren ?? maxChildCallsPerFunction,
+        ),
+      };
 
-    for (const strategy of frameworkBridgeStrategies) {
-      if (!strategy.match(ctx)) continue;
-      const children = await strategy.discover(ctx);
-      if (children.length > 0) {
-        return { strategyId: strategy.id, strategyName: strategy.name, children };
+      for (const strategy of frameworkBridgeStrategies) {
+        if (!strategy.match(ctx)) continue;
+        const children = await strategy.discover(ctx);
+        if (children.length > 0) {
+          return {
+            strategyId: strategy.id,
+            strategyName: strategy.name,
+            children,
+          };
+        }
       }
-    }
 
-    return null as null | { strategyId: string; strategyName: string; children: FrameworkBridgeChild[] };
-  }, [frameworkBridgeStrategies, maxChildCallsPerFunction]);
+      return null as null | {
+        strategyId: string;
+        strategyName: string;
+        children: FrameworkBridgeChild[];
+      };
+    },
+    [frameworkBridgeStrategies, maxChildCallsPerFunction],
+  );
 
+  /**
+   * 【全局研判】在递归分析结束后，调用 AI 对所有节点进行业务职责维度的模块划分（染色）
+   */
   const classifyModulesAfterAnalysis = useCallback(async () => {
     const panorama = panoramaRef.current;
     const graph = graphRef.current;
@@ -1759,7 +2493,7 @@ ${snippet}
 ${JSON.stringify(panorama.metadata)}
 
 项目概要：
-${panorama.summary || ''}
+${panorama.summary || ""}
 
 项目文件列表（过滤后代码文件）：
 ${JSON.stringify(panorama.codeFiles)}
@@ -1768,7 +2502,7 @@ ${JSON.stringify(panorama.codeFiles)}
 ${JSON.stringify(panorama.callChain)}
 
 当前图节点（用于校验 nodeId）：
-${JSON.stringify(graph.nodes.map(n => ({ id: n.id, label: n.label, file: n.file, description: n.description })))}
+${JSON.stringify(graph.nodes.map((n) => ({ id: n.id, label: n.label, file: n.file, description: n.description })))}
 
 返回 JSON：
 {
@@ -1783,20 +2517,25 @@ ${JSON.stringify(graph.nodes.map(n => ({ id: n.id, label: n.label, file: n.file,
 }
 `;
 
-    const result = await requestJsonFromLlm(prompt, { label: '最终模块划分（基于完整调用链）' });
+    const result = await requestJsonFromLlm(prompt, {
+      label: "最终模块划分（基于完整调用链）",
+    });
     const rawModules = Array.isArray(result.modules) ? result.modules : [];
-    const nodeModuleMap = (result.nodeModuleMap && typeof result.nodeModuleMap === 'object')
-      ? result.nodeModuleMap as Record<string, string>
-      : {};
+    const nodeModuleMap =
+      result.nodeModuleMap && typeof result.nodeModuleMap === "object"
+        ? (result.nodeModuleMap as Record<string, string>)
+        : {};
 
     updateGraph((prev) => {
       if (!prev.nodes.length) return prev;
 
-      const validNodeIds = new Set(prev.nodes.map(n => n.id));
+      const validNodeIds = new Set(prev.nodes.map((n) => n.id));
       const normalizedModules: GraphModule[] = rawModules
         .map((m: any, idx: number) => {
-          const id = String(m?.id || `module_${idx + 1}`).trim() || `module_${idx + 1}`;
-          const name = String(m?.name || `模块${idx + 1}`).trim() || `模块${idx + 1}`;
+          const id =
+            String(m?.id || `module_${idx + 1}`).trim() || `module_${idx + 1}`;
+          const name =
+            String(m?.name || `模块${idx + 1}`).trim() || `模块${idx + 1}`;
           return {
             id,
             name,
@@ -1805,15 +2544,26 @@ ${JSON.stringify(graph.nodes.map(n => ({ id: n.id, label: n.label, file: n.file,
         })
         .slice(0, 8);
 
-      const moduleIdSet = new Set(normalizedModules.map(m => m.id));
-      const fallbackModuleId = normalizedModules[0]?.id || 'module_unassigned';
-      const modules = normalizedModules.length > 0
-        ? normalizedModules
-        : [{ id: 'module_unassigned', name: '未分组', color: MODULE_COLORS[0] }];
+      const moduleIdSet = new Set(normalizedModules.map((m) => m.id));
+      const fallbackModuleId = normalizedModules[0]?.id || "module_unassigned";
+      const modules =
+        normalizedModules.length > 0
+          ? normalizedModules
+          : [
+              {
+                id: "module_unassigned",
+                name: "未分组",
+                color: MODULE_COLORS[0],
+              },
+            ];
 
       const nextNodes = prev.nodes.map((node) => {
-        const assigned = validNodeIds.has(node.id) ? String(nodeModuleMap[node.id] || '') : '';
-        const nextModule = moduleIdSet.has(assigned) ? assigned : fallbackModuleId;
+        const assigned = validNodeIds.has(node.id)
+          ? String(nodeModuleMap[node.id] || "")
+          : "";
+        const nextModule = moduleIdSet.has(assigned)
+          ? assigned
+          : fallbackModuleId;
         return { ...node, module: nextModule };
       });
 
@@ -1821,42 +2571,51 @@ ${JSON.stringify(graph.nodes.map(n => ({ id: n.id, label: n.label, file: n.file,
     });
 
     setModuleClassificationFailed(false);
-    addLog('模块划分完成（AI 基于完整调用链研判）', 'success');
+    addLog("模块划分完成（AI 基于完整调用链研判）", "success");
   }, [updateGraph, requestJsonFromLlm]);
 
+  /**
+   * 手动触发模块的重新 AI 划分（用于图表发生显著变化后的纠偏）
+   */
   const reanalyzeModules = useCallback(async () => {
     const panorama = panoramaRef.current;
     const graph = graphRef.current;
     if (!panorama || !graph || graph.nodes.length === 0) {
-      addLog('无法重新分析模块：当前没有可用的全景图节点数据', 'info');
+      addLog("无法重新分析模块：当前没有可用的全景图节点数据", "info");
       return;
     }
     if (isReanalyzingModules) return;
 
     setIsReanalyzingModules(true);
     try {
-      addLog('手动触发模块重新分析中...', 'thinking');
+      addLog("手动触发模块重新分析中...", "thinking");
       await classifyModulesAfterAnalysis();
       setModuleClassificationFailed(false);
     } catch (e: any) {
       setModuleClassificationFailed(true);
-      addLog(`重新分析模块失败: ${e?.message || '未知错误'}`, 'info');
+      addLog(`重新分析模块失败: ${e?.message || "未知错误"}`, "info");
     } finally {
       setIsReanalyzingModules(false);
     }
   }, [classifyModulesAfterAnalysis, isReanalyzingModules]);
 
-  const classifyManualDrillChildrenModules = useCallback(async (params: {
-    parentNodeId: string;
-    parentFunctionName: string;
-    parentFile?: string;
-    children: Array<{ name: string; possibleFile?: string }>;
-  }) => {
-    const graph = graphRef.current;
-    if (!graph || !graph.modules?.length || !params.children.length) return {};
+  /**
+   * 为手动下钻产生的新节点分配已有模块归属
+   * @param params 手动下钻上下文
+   */
+  const classifyManualDrillChildrenModules = useCallback(
+    async (params: {
+      parentNodeId: string;
+      parentFunctionName: string;
+      parentFile?: string;
+      children: Array<{ name: string; possibleFile?: string }>;
+    }) => {
+      const graph = graphRef.current;
+      if (!graph || !graph.modules?.length || !params.children.length)
+        return {};
 
-    const parentNode = graph.nodes.find((n) => n.id === params.parentNodeId);
-    const prompt = `
+      const parentNode = graph.nodes.find((n) => n.id === params.parentNodeId);
+      const prompt = `
 你是代码架构模块划分助手。请基于“当前已有模块划分”，为一次手动下钻新增的函数节点分配模块。
 
 规则：
@@ -1871,8 +2630,8 @@ ${JSON.stringify(graph.modules.map((m) => ({ id: m.id, name: m.name })))}
 ${JSON.stringify({
   nodeId: params.parentNodeId,
   functionName: params.parentFunctionName,
-  file: params.parentFile || parentNode?.file || '',
-  moduleId: parentNode?.module || '',
+  file: params.parentFile || parentNode?.file || "",
+  moduleId: parentNode?.module || "",
 })}
 
 新增子函数：
@@ -1886,379 +2645,515 @@ ${JSON.stringify(params.children)}
 }
 `;
 
-    const result = await requestJsonFromLlm(prompt, { label: `手动下钻模块划分: ${params.parentFunctionName}` });
-    const assignments = Array.isArray(result?.assignments) ? result.assignments : [];
-    const validModules = new Set(graph.modules.map((m) => m.id));
-    const mapped: Record<string, string> = {};
-    assignments.forEach((item: any) => {
-      const fn = String(item?.childFunction || '').trim();
-      const moduleId = String(item?.moduleId || '').trim();
-      if (!fn || !moduleId || !validModules.has(moduleId)) return;
-      mapped[fn] = moduleId;
-    });
-    return mapped;
-  }, [requestJsonFromLlm]);
-
-  const manualDrillNode = useCallback(async (nodeId: string) => {
-    const currentPanorama = panoramaRef.current;
-    const url = repoUrl;
-    const token = authTokenRef.current;
-
-    if (!currentPanorama || !url) {
-      addLog('无法手动下钻：当前没有可用的分析上下文', 'error');
-      return;
-    }
-
-    const record = currentPanorama.callChain.records.find((r) => r.nodeId === nodeId);
-    if (!record) {
-      addLog(`无法手动下钻：未找到节点记录 ${nodeId}`, 'error');
-      return;
-    }
-
-    const hasChildren = (graphRef.current?.edges || []).some((e) => e.source === nodeId);
-    if (hasChildren) {
-      addLog(`节点 ${record.functionName} 已存在子节点，无需手动下钻`, 'info');
-      return;
-    }
-
-    updateCallRecord(nodeId, { status: 'analyzing', error: undefined });
-    upsertGraphNode({
-      id: nodeId,
-      label: record.functionName,
-      file: record.file || 'Unknown',
-      line: record.line,
-      description: '手动下钻中...',
-      depth: record.depth,
-      drillFlag: 1,
-      callStatus: 'analyzing',
-    });
-    const manualChain = buildFunctionChainByNodeId(record.nodeId) || `${record.functionName}()`;
-    addLog(drillLog(`手动下钻：${manualChain}（L${record.depth} -> L${record.depth + 1}）`), 'thinking');
-
-    let resolved: Awaited<ReturnType<typeof resolveAndAnalyzeFunctionWithCache>>;
-    try {
-      resolved = await resolveAndAnalyzeFunctionWithCache({
-        url,
-        token,
-        codeFiles: currentPanorama.codeFiles || [],
-        parentFile: currentPanorama.callChain.records.find((r) => r.nodeId === record.parentNodeId)?.file,
-        parentFunctionName: currentPanorama.callChain.records.find((r) => r.nodeId === record.parentNodeId)?.functionName,
-        functionName: record.functionName,
-        guessedFile: record.file,
-        language: currentPanorama.metadata.language || 'Unknown',
-        depth: record.depth,
-        isEntry: record.depth === 0,
+      const result = await requestJsonFromLlm(prompt, {
+        label: `手动下钻模块划分: ${params.parentFunctionName}`,
       });
-    } catch (e: any) {
-      updateCallRecord(nodeId, { status: 'failed', error: e?.message || '手动下钻分析失败' });
-      addLog(drillLog(`手动下钻失败（分析异常）: ${manualChain} (${e?.message || '未知错误'})`), 'error');
-      return;
-    }
+      const assignments = Array.isArray(result?.assignments)
+        ? result.assignments
+        : [];
+      const validModules = new Set(graph.modules.map((m) => m.id));
+      const mapped: Record<string, string> = {};
+      assignments.forEach((item: any) => {
+        const fn = String(item?.childFunction || "").trim();
+        const moduleId = String(item?.moduleId || "").trim();
+        if (!fn || !moduleId || !validModules.has(moduleId)) return;
+        mapped[fn] = moduleId;
+      });
+      return mapped;
+    },
+    [requestJsonFromLlm],
+  );
 
-    const located = resolved.located;
-    updateCallRecord(nodeId, { locateAttempts: located.attempts || [] });
+  /**
+   * 对指定的叶子节点执行手动深度下钻（强行继续分析其子调用）
+   * @param nodeId 待分析的节点 ID
+   */
+  const manualDrillNode = useCallback(
+    async (nodeId: string) => {
+      const currentPanorama = panoramaRef.current;
+      const url = repoUrl;
+      const token = authTokenRef.current;
 
-    if (resolved.cache.locateHit || resolved.cache.drillHit) {
-      addLog(
-        drillLog(`手动下钻缓存命中: ${manualChain}（定位缓存: ${resolved.cache.locateHit ? '是' : '否'}，分析缓存: ${resolved.cache.drillHit ? '是' : '否'}）`),
-        'info'
+      if (!currentPanorama || !url) {
+        addLog("无法手动下钻：当前没有可用的分析上下文", "error");
+        return;
+      }
+
+      const record = currentPanorama.callChain.records.find(
+        (r) => r.nodeId === nodeId,
       );
-    }
+      if (!record) {
+        addLog(`无法手动下钻：未找到节点记录 ${nodeId}`, "error");
+        return;
+      }
 
-    if (!located.file || !located.content || !resolved.analyzed) {
-      if (located.isSystemOrLibraryFunction) {
-        const bridgeResult = await tryBridgeFrameworkCall({
-          language: currentPanorama.metadata.language || 'Unknown',
-          functionName: record.functionName,
-          reason: located.systemOrLibraryReason,
+      const hasChildren = (graphRef.current?.edges || []).some(
+        (e) => e.source === nodeId,
+      );
+      if (hasChildren) {
+        addLog(
+          `节点 ${record.functionName} 已存在子节点，无需手动下钻`,
+          "info",
+        );
+        return;
+      }
+
+      updateCallRecord(nodeId, { status: "analyzing", error: undefined });
+      upsertGraphNode({
+        id: nodeId,
+        label: record.functionName,
+        file: record.file || "Unknown",
+        line: record.line,
+        description: "手动下钻中...",
+        depth: record.depth,
+        drillFlag: 1,
+        callStatus: "analyzing",
+      });
+      const manualChain =
+        buildFunctionChainByNodeId(record.nodeId) || `${record.functionName}()`;
+      addLog(
+        drillLog(
+          `手动下钻：${manualChain}（L${record.depth} -> L${record.depth + 1}）`,
+        ),
+        "thinking",
+      );
+
+      let resolved: Awaited<
+        ReturnType<typeof resolveAndAnalyzeFunctionWithCache>
+      >;
+      try {
+        resolved = await resolveAndAnalyzeFunctionWithCache({
           url,
           token,
           codeFiles: currentPanorama.codeFiles || [],
-          maxChildren: maxChildCallsPerFunction,
+          parentFile: currentPanorama.callChain.records.find(
+            (r) => r.nodeId === record.parentNodeId,
+          )?.file,
+          parentFunctionName: currentPanorama.callChain.records.find(
+            (r) => r.nodeId === record.parentNodeId,
+          )?.functionName,
+          functionName: record.functionName,
+          guessedFile: record.file,
+          language: currentPanorama.metadata.language || "Unknown",
+          depth: record.depth,
+          isEntry: record.depth === 0,
         });
-        if (bridgeResult) {
-          try {
-            const bridgeChildren = bridgeResult.children;
-            if (bridgeChildren.length > 0) {
-              updateCallRecord(nodeId, { status: 'done' });
-              upsertGraphNode({
-                id: nodeId,
-                label: record.functionName,
-                file: record.file || 'FrameworkBridge',
-                line: record.line,
-                description: `框架桥接节点（${bridgeResult.strategyName}：${located.systemOrLibraryReason || '框架运行时调用'}），已转入项目业务入口继续下钻`,
-                depth: record.depth,
-                drillFlag: 1,
-                callStatus: 'done',
-              });
-              addLog(
-                drillLog(`命中框架桥接策略[${bridgeResult.strategyId}]: ${manualChain}，已发现 ${bridgeChildren.length} 个业务入口继续分析`),
-                'info'
-              );
-              for (const child of bridgeChildren) {
-                const childNodeId = makeNodeId(nodeId, child.name, record.depth + 1);
+      } catch (e: any) {
+        updateCallRecord(nodeId, {
+          status: "failed",
+          error: e?.message || "手动下钻分析失败",
+        });
+        addLog(
+          drillLog(
+            `手动下钻失败（分析异常）: ${manualChain} (${e?.message || "未知错误"})`,
+          ),
+          "error",
+        );
+        return;
+      }
+
+      const located = resolved.located;
+      updateCallRecord(nodeId, { locateAttempts: located.attempts || [] });
+
+      if (resolved.cache.locateHit || resolved.cache.drillHit) {
+        addLog(
+          drillLog(
+            `手动下钻缓存命中: ${manualChain}（定位缓存: ${resolved.cache.locateHit ? "是" : "否"}，分析缓存: ${resolved.cache.drillHit ? "是" : "否"}）`,
+          ),
+          "info",
+        );
+      }
+
+      if (!located.file || !located.content || !resolved.analyzed) {
+        if (located.isSystemOrLibraryFunction) {
+          const bridgeResult = await tryBridgeFrameworkCall({
+            language: currentPanorama.metadata.language || "Unknown",
+            functionName: record.functionName,
+            reason: located.systemOrLibraryReason,
+            url,
+            token,
+            codeFiles: currentPanorama.codeFiles || [],
+            maxChildren: maxChildCallsPerFunction,
+          });
+          if (bridgeResult) {
+            try {
+              const bridgeChildren = bridgeResult.children;
+              if (bridgeChildren.length > 0) {
+                updateCallRecord(nodeId, { status: "done" });
                 upsertGraphNode({
-                  id: childNodeId,
-                  label: child.name,
-                  file: child.possibleFile,
-                  httpMethod: child.httpMethod,
-                  httpRoute: child.httpRoute,
-                  module: (graphRef.current?.nodes || []).find((n) => n.id === nodeId)?.module
-                    || (graphRef.current?.modules || [])[0]?.id
-                    || '',
-                  type: child.type,
-                  importance: child.importance,
-                  description: child.description,
-                  depth: record.depth + 1,
+                  id: nodeId,
+                  label: record.functionName,
+                  file: record.file || "FrameworkBridge",
+                  line: record.line,
+                  description: `框架桥接节点（${bridgeResult.strategyName}：${located.systemOrLibraryReason || "框架运行时调用"}），已转入项目业务入口继续下钻`,
+                  depth: record.depth,
                   drillFlag: 1,
-                  callStatus: 'queued',
+                  callStatus: "done",
                 });
-                upsertGraphEdge(nodeId, childNodeId);
-                appendCallRecord({
-                  nodeId: childNodeId,
-                  functionName: child.name,
-                  file: child.possibleFile,
-                  depth: record.depth + 1,
-                  drillFlag: 1,
-                  parentNodeId: nodeId,
-                  status: 'queued',
-                });
+                addLog(
+                  drillLog(
+                    `命中框架桥接策略[${bridgeResult.strategyId}]: ${manualChain}，已发现 ${bridgeChildren.length} 个业务入口继续分析`,
+                  ),
+                  "info",
+                );
+                for (const child of bridgeChildren) {
+                  const childNodeId = makeNodeId(
+                    nodeId,
+                    child.name,
+                    record.depth + 1,
+                  );
+                  upsertGraphNode({
+                    id: childNodeId,
+                    label: child.name,
+                    file: child.possibleFile,
+                    httpMethod: child.httpMethod,
+                    httpRoute: child.httpRoute,
+                    module:
+                      (graphRef.current?.nodes || []).find(
+                        (n) => n.id === nodeId,
+                      )?.module ||
+                      (graphRef.current?.modules || [])[0]?.id ||
+                      "",
+                    type: child.type,
+                    importance: child.importance,
+                    description: child.description,
+                    depth: record.depth + 1,
+                    drillFlag: 1,
+                    callStatus: "queued",
+                  });
+                  upsertGraphEdge(nodeId, childNodeId);
+                  appendCallRecord({
+                    nodeId: childNodeId,
+                    functionName: child.name,
+                    file: child.possibleFile,
+                    depth: record.depth + 1,
+                    drillFlag: 1,
+                    parentNodeId: nodeId,
+                    status: "queued",
+                  });
+                }
+                return;
               }
-              return;
+            } catch (e: any) {
+              addLog(
+                drillLog(
+                  `框架桥接失败，回退为停止下钻: ${manualChain} (${e?.message || "未知错误"})`,
+                ),
+                "info",
+              );
             }
-          } catch (e: any) {
-            addLog(drillLog(`框架桥接失败，回退为停止下钻: ${manualChain} (${e?.message || '未知错误'})`), 'info');
           }
+          updateCallRecord(nodeId, {
+            status: "skipped",
+            error: `系统/库函数，停止下钻：${located.systemOrLibraryReason || "已标记"}`,
+          });
+          upsertGraphNode({
+            id: nodeId,
+            label: record.functionName,
+            file: record.file || "System/Library",
+            line: record.line,
+            description: `系统/库函数，停止下钻：${located.systemOrLibraryReason || "已标记"}`,
+            depth: record.depth,
+            drillFlag: -1,
+            callStatus: "skipped",
+          });
+          addLog(
+            drillLog(
+              `停止下钻（系统/库函数）: ${manualChain}，原因：${located.systemOrLibraryReason || "AI 已标记"}`,
+            ),
+            "thinking",
+          );
+          return;
         }
         updateCallRecord(nodeId, {
-          status: 'skipped',
-          error: `系统/库函数，停止下钻：${located.systemOrLibraryReason || '已标记'}`,
+          status: "failed",
+          error: "手动下钻失败：无法定位函数定义",
         });
         upsertGraphNode({
           id: nodeId,
           label: record.functionName,
-          file: record.file || 'System/Library',
+          file: record.file || "Unknown",
           line: record.line,
-          description: `系统/库函数，停止下钻：${located.systemOrLibraryReason || '已标记'}`,
+          description: "手动下钻失败：无法定位函数定义",
           depth: record.depth,
-          drillFlag: -1,
-          callStatus: 'skipped',
+          drillFlag: record.drillFlag,
+          callStatus: "failed",
         });
         addLog(
-          drillLog(`停止下钻（系统/库函数）: ${manualChain}，原因：${located.systemOrLibraryReason || 'AI 已标记'}`),
-          'thinking'
+          drillLog(`手动下钻失败（无法定位定义）: ${manualChain}`),
+          "error",
+          located.attempts || [],
         );
         return;
       }
-      updateCallRecord(nodeId, { status: 'failed', error: '手动下钻失败：无法定位函数定义' });
+      addLog(
+        drillLog(
+          `定位成功：${manualChain} -> ${located.file}${located.line ? `:L${located.line}` : ""}`,
+        ),
+        "thinking",
+        located.attempts || [],
+      );
+
+      const analyzed = resolved.analyzed;
+      const endpointMeta = detectHttpEndpointFromLocatedFunction({
+        language: currentPanorama.metadata.language || "Unknown",
+        fileContent: located.content,
+        functionName: analyzed.functionName || record.functionName,
+      });
+
       upsertGraphNode({
         id: nodeId,
-        label: record.functionName,
-        file: record.file || 'Unknown',
-        line: record.line,
-        description: '手动下钻失败：无法定位函数定义',
+        label: analyzed.functionName || record.functionName,
+        file: located.file,
+        line: located.line,
+        httpMethod: endpointMeta.httpMethod,
+        httpRoute: endpointMeta.httpRoute,
+        type: analyzed.functionType,
+        importance: analyzed.importance,
+        description: analyzed.description || "手动下钻分析完成",
         depth: record.depth,
-        drillFlag: record.drillFlag,
-        callStatus: 'failed',
+        drillFlag: 1,
+        callStatus: "done",
       });
-      addLog(drillLog(`手动下钻失败（无法定位定义）: ${manualChain}`), 'error', located.attempts || []);
-      return;
-    }
-    addLog(
-      drillLog(`定位成功：${manualChain} -> ${located.file}${located.line ? `:L${located.line}` : ''}`),
-      'thinking',
-      located.attempts || []
-    );
+      updateCallRecord(nodeId, {
+        status: "done",
+        file: located.file,
+        line: located.line,
+      });
 
-    const analyzed = resolved.analyzed;
-    const endpointMeta = detectHttpEndpointFromLocatedFunction({
-      language: currentPanorama.metadata.language || 'Unknown',
-      fileContent: located.content,
-      functionName: analyzed.functionName || record.functionName,
-    });
+      const children = Array.isArray(analyzed.calls)
+        ? analyzed.calls.slice(0, maxChildCallsPerFunction)
+        : [];
+      addLog(
+        drillLog(
+          `手动下钻完成，新增候选子节点 ${children.length} 个: ${manualChain}`,
+        ),
+        "success",
+      );
 
-    upsertGraphNode({
-      id: nodeId,
-      label: analyzed.functionName || record.functionName,
-      file: located.file,
-      line: located.line,
-      httpMethod: endpointMeta.httpMethod,
-      httpRoute: endpointMeta.httpRoute,
-      type: analyzed.functionType,
-      importance: analyzed.importance,
-      description: analyzed.description || '手动下钻分析完成',
-      depth: record.depth,
-      drillFlag: 1,
-      callStatus: 'done',
-    });
-    updateCallRecord(nodeId, { status: 'done', file: located.file, line: located.line });
+      const parentModuleId =
+        (graphRef.current?.nodes || []).find((n) => n.id === nodeId)?.module ||
+        (graphRef.current?.modules || [])[0]?.id ||
+        "";
+      let childModuleMap: Record<string, string> = {};
+      if (children.length > 0 && graphRef.current?.modules?.length) {
+        try {
+          childModuleMap = await classifyManualDrillChildrenModules({
+            parentNodeId: nodeId,
+            parentFunctionName: record.functionName,
+            parentFile: record.file,
+            children: children
+              .map((child) => ({
+                name: String(child.name || "").trim(),
+                possibleFile: sanitizeFilePath(child.possibleFile) || undefined,
+              }))
+              .filter((c) => c.name),
+          });
+        } catch (e: any) {
+          addLog(
+            drillLog(
+              `手动下钻模块划分失败，使用父模块兜底: ${manualChain} (${e?.message || "未知错误"})`,
+            ),
+            "info",
+          );
+        }
+      }
 
-    const children = Array.isArray(analyzed.calls) ? analyzed.calls.slice(0, maxChildCallsPerFunction) : [];
-    addLog(drillLog(`手动下钻完成，新增候选子节点 ${children.length} 个: ${manualChain}`), 'success');
+      for (const child of children) {
+        const childName = String(child.name || "").trim();
+        if (!childName) continue;
+        const childNodeId = makeNodeId(nodeId, childName, record.depth + 1);
+        const drillFlag = normalizeDrillFlag(child.shouldDrill);
+        const possibleFile = sanitizeFilePath(child.possibleFile) || undefined;
+        const childFile = possibleFile || located.file;
+        const childModuleId = childModuleMap[childName] || parentModuleId;
 
-    const parentModuleId = (graphRef.current?.nodes || []).find((n) => n.id === nodeId)?.module
-      || (graphRef.current?.modules || [])[0]?.id
-      || '';
-    let childModuleMap: Record<string, string> = {};
-    if (children.length > 0 && graphRef.current?.modules?.length) {
-      try {
-        childModuleMap = await classifyManualDrillChildrenModules({
-          parentNodeId: nodeId,
-          parentFunctionName: record.functionName,
-          parentFile: record.file,
-          children: children.map((child) => ({
-            name: String(child.name || '').trim(),
-            possibleFile: sanitizeFilePath(child.possibleFile) || undefined,
-          })).filter((c) => c.name),
+        upsertGraphNode({
+          id: childNodeId,
+          label: childName,
+          file: childFile,
+          module: childModuleId,
+          type: child.type,
+          importance: child.importance,
+          description:
+            child.description ||
+            (drillFlag === -1 ? "叶子节点或次要函数" : "待下钻分析"),
+          depth: record.depth + 1,
+          drillFlag,
+          callStatus: drillFlag === -1 ? "skipped" : "queued",
         });
-      } catch (e: any) {
-        addLog(drillLog(`手动下钻模块划分失败，使用父模块兜底: ${manualChain} (${e?.message || '未知错误'})`), 'info');
+        upsertGraphEdge(nodeId, childNodeId);
+
+        appendCallRecord({
+          nodeId: childNodeId,
+          functionName: childName,
+          file: childFile,
+          line: undefined,
+          depth: record.depth + 1,
+          drillFlag,
+          parentNodeId: nodeId,
+          status: drillFlag === -1 ? "skipped" : "queued",
+        });
       }
-    }
+    },
+    [
+      makeNodeId,
+      repoUrl,
+      resolveAndAnalyzeFunctionWithCache,
+      classifyManualDrillChildrenModules,
+    ],
+  );
 
-    for (const child of children) {
-      const childName = String(child.name || '').trim();
-      if (!childName) continue;
-      const childNodeId = makeNodeId(nodeId, childName, record.depth + 1);
-      const drillFlag = normalizeDrillFlag(child.shouldDrill);
-      const possibleFile = sanitizeFilePath(child.possibleFile) || undefined;
-      const childFile = possibleFile || located.file;
-      const childModuleId = childModuleMap[childName] || parentModuleId;
+  /**
+   * 根据路径加载特定文件的源码（带缓存支持）
+   * @param path 相对路径
+   */
+  const loadFileContent = useCallback(
+    async (path: string) => {
+      const currentUrl = repoUrl || graphData?.repoUrl || "";
+      if (!currentUrl || !path) return "";
+      const token = authTokenRef.current;
+      const map = await fetchContents(currentUrl, [path], token);
+      return map[path] || "";
+    },
+    [repoUrl, graphData?.repoUrl],
+  );
 
-      upsertGraphNode({
-        id: childNodeId,
-        label: childName,
-        file: childFile,
-        module: childModuleId,
-        type: child.type,
-        importance: child.importance,
-        description: child.description || (drillFlag === -1 ? '叶子节点或次要函数' : '待下钻分析'),
-        depth: record.depth + 1,
-        drillFlag,
-        callStatus: drillFlag === -1 ? 'skipped' : 'queued',
-      });
-      upsertGraphEdge(nodeId, childNodeId);
-
-      appendCallRecord({
-        nodeId: childNodeId,
-        functionName: childName,
-        file: childFile,
-        line: undefined,
-        depth: record.depth + 1,
-        drillFlag,
-        parentNodeId: nodeId,
-        status: drillFlag === -1 ? 'skipped' : 'queued',
-      });
-    }
-  }, [makeNodeId, repoUrl, resolveAndAnalyzeFunctionWithCache, classifyManualDrillChildrenModules]);
-
-  const loadFileContent = useCallback(async (path: string) => {
-    const currentUrl = repoUrl || graphData?.repoUrl || '';
-    if (!currentUrl || !path) return '';
-    const token = authTokenRef.current;
-    const map = await fetchContents(currentUrl, [path], token);
-    return map[path] || '';
-  }, [repoUrl, graphData?.repoUrl]);
-
-  const analyzeRepo = useCallback(async (url: string, token?: string, sourceType: SourceType = 'github') => {
-    const runId = activeRunIdRef.current + 1;
-    activeRunIdRef.current = runId;
-    stopRequestedRef.current = false;
-    const ensureActive = () => {
-      if (stopRequestedRef.current || runId !== activeRunIdRef.current) {
-        throw new Error('__ANALYSIS_STOPPED__');
-      }
-    };
-
-    setRepoUrl(url);
-    sourceTypeRef.current = sourceType;
-    setStatus('validating');
-    setLogs([]);
-    setGraphData(null);
-    setProjectPanoramaMarkdown('');
-    setAiUsageStats({ inputTokens: 0, outputTokens: 0, callCount: 0 });
-    setModuleClassificationFailed(false);
-    setIsReanalyzingModules(false);
-    clearFileCache();
-    functionLocateCacheRef.current = {};
-    functionDrillCacheRef.current = {};
-    authTokenRef.current = token;
-    nodeSeqRef.current = 0;
-    graphRef.current = INITIAL_GRAPH(parseRepoName(url));
-    setGraphData(graphRef.current);
-
-    addLog(sourceType === 'local' ? `正在验证本地目录: ${url}` : `正在验证仓库地址: ${url}`, 'info');
-
-    try {
-      ensureActive();
-      const api = apiBySource(sourceType);
-      const basePayload = sourcePayload(sourceType, url, token);
-      const validateRes = await axios.post(api.validate, basePayload);
-      ensureActive();
-      if (!validateRes.data.valid) {
-        throw new Error(validateRes.data.error || (sourceType === 'local' ? '无效的本地目录' : '无效的 GitHub 仓库地址'));
-      }
-      const repoMeta = validateRes.data.data || {};
-      const repoName = repoMeta.full_name || parseRepoName(url);
-      addLog(sourceType === 'local' ? '本地目录验证成功' : '仓库验证成功', 'success');
-
-      setStatus('fetching_tree');
-      addLog('正在获取文件结构...', 'info');
-      const treeRes = await axios.post(api.tree, basePayload);
-      ensureActive();
-
-      if (!treeRes.data || !Array.isArray(treeRes.data.tree)) {
-        throw new Error('获取文件列表失败: 返回数据格式错误');
-      }
-
-      const allFiles = treeRes.data.tree.map((f: any) => f.path);
-      const codeFiles = allFiles.filter((f: string) => {
-        const lower = f.toLowerCase();
-        return CODE_EXTENSIONS.some(ext => lower.endsWith(ext));
-      });
-
-      addLog(`成功获取 ${allFiles.length} 个文件（代码文件 ${codeFiles.length}）`, 'success');
-
-      panoramaRef.current = {
-        metadata: {
-          repoUrl: url,
-          repoName,
-          language: repoMeta.language || 'Unknown',
-          generatedAt: new Date().toISOString(),
-        },
-        summary: '正在分析入口文件与项目结构...',
-        allFiles,
-        codeFiles,
-        callChain: {
-          maxDepth: maxDrillDepth,
-          entryPoint: undefined,
-          records: [],
-          graph: { nodes: [], edges: [] },
-        },
+  /**
+   * 【流水线总控】开始执行项目自动化全景分析
+   * 包含：验证 -> 拉取文件树 -> 识别主入口 -> 循环递归下钻 -> 模块染色 -> 生成 Markdown
+   * @param url 仓库/目录地址
+   * @param token 鉴权 Token
+   * @param sourceType 来源类型
+   */
+  const analyzeRepo = useCallback(
+    async (url: string, token?: string, sourceType: SourceType = "github") => {
+      const runId = activeRunIdRef.current + 1;
+      activeRunIdRef.current = runId;
+      stopRequestedRef.current = false;
+      const ensureActive = () => {
+        if (stopRequestedRef.current || runId !== activeRunIdRef.current) {
+          throw new Error("__ANALYSIS_STOPPED__");
+        }
       };
-      setProjectPanoramaMarkdown(buildPanoramaMarkdown(panoramaRef.current));
 
-      graphRef.current = {
-        ...(graphRef.current || INITIAL_GRAPH(repoName)),
-        repoName,
-        repoUrl: url,
-        allFiles,
-        callChainRecords: [],
-        project: {
-          ...(graphRef.current?.project || INITIAL_GRAPH(repoName).project),
-          language: repoMeta.language || 'Unknown',
-          summary: '分析进行中：等待入口识别与逐级下钻结果。',
-        },
-      };
+      setRepoUrl(url);
+      sourceTypeRef.current = sourceType;
+      setStatus("validating");
+      setLogs([]);
+      setGraphData(null);
+      setProjectPanoramaMarkdown("");
+      setAiUsageStats({ inputTokens: 0, outputTokens: 0, callCount: 0 });
+      setModuleClassificationFailed(false);
+      setIsReanalyzingModules(false);
+      clearFileCache();
+      functionLocateCacheRef.current = {};
+      functionDrillCacheRef.current = {};
+      authTokenRef.current = token;
+      nodeSeqRef.current = 0;
+      graphRef.current = INITIAL_GRAPH(parseRepoName(url));
       setGraphData(graphRef.current);
 
-      setStatus('analyzing_structure');
-      addLog('AI Agent: 正在识别主入口文件与入口函数（逐步下钻模式）...', 'thinking');
+      addLog(
+        sourceType === "local"
+          ? `正在验证本地目录: ${url}`
+          : `正在验证仓库地址: ${url}`,
+        "info",
+      );
 
-      const readmeFile = allFiles.find((f: string) => /^readme(\.|$)/i.test(f.split('/').pop() || '')) || allFiles.find((f: string) => f.toLowerCase().includes('readme'));
-      const manifestFiles = allFiles.filter((f: string) => /(?:package\.json|go\.mod|pom\.xml|requirements\.txt|pyproject\.toml|Cargo\.toml)$/i.test(f)).slice(0, 5);
+      try {
+        ensureActive();
+        const api = apiBySource(sourceType);
+        const basePayload = sourcePayload(sourceType, url, token);
+        const validateRes = await axios.post(api.validate, basePayload);
+        ensureActive();
+        if (!validateRes.data.valid) {
+          throw new Error(
+            validateRes.data.error ||
+              (sourceType === "local"
+                ? "无效的本地目录"
+                : "无效的 GitHub 仓库地址"),
+          );
+        }
+        const repoMeta = validateRes.data.data || {};
+        const repoName = repoMeta.full_name || parseRepoName(url);
+        addLog(
+          sourceType === "local" ? "本地目录验证成功" : "仓库验证成功",
+          "success",
+        );
 
-      const entryGuessPrompt = `
+        setStatus("fetching_tree");
+        addLog("正在获取文件结构...", "info");
+        const treeRes = await axios.post(api.tree, basePayload);
+        ensureActive();
+
+        if (!treeRes.data || !Array.isArray(treeRes.data.tree)) {
+          throw new Error("获取文件列表失败: 返回数据格式错误");
+        }
+
+        const allFiles = treeRes.data.tree.map((f: any) => f.path);
+        const codeFiles = allFiles.filter((f: string) => {
+          const lower = f.toLowerCase();
+          return CODE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+        });
+
+        addLog(
+          `成功获取 ${allFiles.length} 个文件（代码文件 ${codeFiles.length}）`,
+          "success",
+        );
+
+        panoramaRef.current = {
+          metadata: {
+            repoUrl: url,
+            repoName,
+            language: repoMeta.language || "Unknown",
+            generatedAt: new Date().toISOString(),
+          },
+          summary: "正在分析入口文件与项目结构...",
+          allFiles,
+          codeFiles,
+          callChain: {
+            maxDepth: maxDrillDepth,
+            entryPoint: undefined,
+            records: [],
+            graph: { nodes: [], edges: [] },
+          },
+        };
+        setProjectPanoramaMarkdown(buildPanoramaMarkdown(panoramaRef.current));
+
+        graphRef.current = {
+          ...(graphRef.current || INITIAL_GRAPH(repoName)),
+          repoName,
+          repoUrl: url,
+          allFiles,
+          callChainRecords: [],
+          project: {
+            ...(graphRef.current?.project || INITIAL_GRAPH(repoName).project),
+            language: repoMeta.language || "Unknown",
+            summary: "分析进行中：等待入口识别与逐级下钻结果。",
+          },
+        };
+        setGraphData(graphRef.current);
+
+        setStatus("analyzing_structure");
+        addLog(
+          "AI Agent: 正在识别主入口文件与入口函数（逐步下钻模式）...",
+          "thinking",
+        );
+
+        const readmeFile =
+          allFiles.find((f: string) =>
+            /^readme(\.|$)/i.test(f.split("/").pop() || ""),
+          ) || allFiles.find((f: string) => f.toLowerCase().includes("readme"));
+        const manifestFiles = allFiles
+          .filter((f: string) =>
+            /(?:package\.json|go\.mod|pom\.xml|requirements\.txt|pyproject\.toml|Cargo\.toml)$/i.test(
+              f,
+            ),
+          )
+          .slice(0, 5);
+
+        const entryGuessPrompt = `
 你是一位资深软件架构师。下面是项目代码文件列表，请识别主要语言、可能入口文件和主入口函数名称（如果能推断）。
 
 代码文件列表：
@@ -2271,33 +3166,53 @@ ${JSON.stringify(codeFiles.slice(0, 10000))}
   "potentialEntryFunctionNames": ["main", "bootstrap", "App", "start"]
 }
 `;
-      const guessData = await requestJsonFromLlm(entryGuessPrompt, { label: '入口识别：候选入口文件与主入口函数' });
-      ensureActive();
-      const language = guessData.language || repoMeta.language || 'Unknown';
-      const potentialEntryPoints: string[] = Array.isArray(guessData.potentialEntryPoints) ? guessData.potentialEntryPoints.slice(0, 5) : [];
-      const potentialEntryFunctionNames: string[] = Array.isArray(guessData.potentialEntryFunctionNames) ? guessData.potentialEntryFunctionNames.slice(0, 5) : ['main'];
-
-      updatePanorama(prev => ({
-        ...prev,
-        metadata: { ...prev.metadata, language },
-      }));
-      updateGraph(prev => ({ ...prev, project: { ...prev.project, language } }));
-
-      addLog(`识别语言: ${language}`, 'info');
-      addLog(`候选入口文件: ${potentialEntryPoints.join(', ') || '无'}`, 'info');
-
-      let entryPoint = '';
-      let entryContent = '';
-      if (potentialEntryPoints.length > 0) {
-        const verifyMap = await fetchContents(url, potentialEntryPoints.slice(0, 3), token);
+        const guessData = await requestJsonFromLlm(entryGuessPrompt, {
+          label: "入口识别：候选入口文件与主入口函数",
+        });
         ensureActive();
-        for (const candidate of potentialEntryPoints.slice(0, 3)) {
+        const language = guessData.language || repoMeta.language || "Unknown";
+        const potentialEntryPoints: string[] = Array.isArray(
+          guessData.potentialEntryPoints,
+        )
+          ? guessData.potentialEntryPoints.slice(0, 5)
+          : [];
+        const potentialEntryFunctionNames: string[] = Array.isArray(
+          guessData.potentialEntryFunctionNames,
+        )
+          ? guessData.potentialEntryFunctionNames.slice(0, 5)
+          : ["main"];
+
+        updatePanorama((prev) => ({
+          ...prev,
+          metadata: { ...prev.metadata, language },
+        }));
+        updateGraph((prev) => ({
+          ...prev,
+          project: { ...prev.project, language },
+        }));
+
+        addLog(`识别语言: ${language}`, "info");
+        addLog(
+          `候选入口文件: ${potentialEntryPoints.join(", ") || "无"}`,
+          "info",
+        );
+
+        let entryPoint = "";
+        let entryContent = "";
+        if (potentialEntryPoints.length > 0) {
+          const verifyMap = await fetchContents(
+            url,
+            potentialEntryPoints.slice(0, 3),
+            token,
+          );
           ensureActive();
-          const content = verifyMap[candidate] || '';
-          if (!content) continue;
-          const verifyContent = buildEntryVerifyContentByLines(content);
-          const lineCount = String(content).split(/\r?\n/).length;
-          const verifyPrompt = `
+          for (const candidate of potentialEntryPoints.slice(0, 3)) {
+            ensureActive();
+            const content = verifyMap[candidate] || "";
+            if (!content) continue;
+            const verifyContent = buildEntryVerifyContentByLines(content);
+            const lineCount = String(content).split(/\r?\n/).length;
+            const verifyPrompt = `
 你是代码入口识别器。请判断该文件是否是项目入口文件（main 启动、服务启动、React/Vue 挂载、CLI 启动等）。
 返回 JSON。
 
@@ -2318,72 +3233,108 @@ ${verifyContent}
   "reason": "简短说明"
 }
 `;
-          const verify = await requestJsonFromLlm(verifyPrompt, { label: `入口校验: ${candidate}` });
-          ensureActive();
-          addLog(`验证候选入口文件: ${candidate}`, 'thinking');
-          if (verify.isEntryPoint) {
-            entryPoint = candidate;
-            entryContent = content;
-            if (verify.entryFunctionName) {
-              potentialEntryFunctionNames.unshift(String(verify.entryFunctionName));
+            const verify = await requestJsonFromLlm(verifyPrompt, {
+              label: `入口校验: ${candidate}`,
+            });
+            ensureActive();
+            addLog(`验证候选入口文件: ${candidate}`, "thinking");
+            if (verify.isEntryPoint) {
+              entryPoint = candidate;
+              entryContent = content;
+              if (verify.entryFunctionName) {
+                potentialEntryFunctionNames.unshift(
+                  String(verify.entryFunctionName),
+                );
+              }
+              addLog(`确认入口文件: ${entryPoint}`, "success");
+              break;
             }
-            addLog(`确认入口文件: ${entryPoint}`, 'success');
-            break;
           }
         }
-      }
 
-      if (!entryPoint) {
-        addLog(sourceType === 'local' ? '入口文件未确认，启动本地搜索兜底...' : '入口文件未确认，启动 GitHub 搜索兜底...', 'thinking');
-        let searchQuery = 'main start bootstrap app.listen createRoot';
-        const lang = language.toLowerCase();
-        if (lang.includes('go')) searchQuery = 'func main';
-        else if (lang.includes('python')) searchQuery = 'if __name__ == "__main__"';
-        else if (lang.includes('rust')) searchQuery = 'fn main';
-        else if (lang.includes('java')) searchQuery = 'public static void main';
-        const searchRes = await axios.post(api.search, { ...basePayload, query: searchQuery });
-        ensureActive();
-        const searchFiles = (searchRes.data?.items || []).map((i: any) => i.path).filter(Boolean);
-        if (searchFiles.length) {
-          const contentMap = await fetchContents(url, searchFiles.slice(0, 5), token);
+        if (!entryPoint) {
+          addLog(
+            sourceType === "local"
+              ? "入口文件未确认，启动本地搜索兜底..."
+              : "入口文件未确认，启动 GitHub 搜索兜底...",
+            "thinking",
+          );
+          let searchQuery = "main start bootstrap app.listen createRoot";
+          const lang = language.toLowerCase();
+          if (lang.includes("go")) searchQuery = "func main";
+          else if (lang.includes("python"))
+            searchQuery = 'if __name__ == "__main__"';
+          else if (lang.includes("rust")) searchQuery = "fn main";
+          else if (lang.includes("java"))
+            searchQuery = "public static void main";
+          const searchRes = await axios.post(api.search, {
+            ...basePayload,
+            query: searchQuery,
+          });
           ensureActive();
-          entryPoint = searchFiles[0];
-          entryContent = contentMap[entryPoint] || '';
-          addLog(`根据搜索结果选择入口文件: ${entryPoint}`, 'success');
+          const searchFiles = (searchRes.data?.items || [])
+            .map((i: any) => i.path)
+            .filter(Boolean);
+          if (searchFiles.length) {
+            const contentMap = await fetchContents(
+              url,
+              searchFiles.slice(0, 5),
+              token,
+            );
+            ensureActive();
+            entryPoint = searchFiles[0];
+            entryContent = contentMap[entryPoint] || "";
+            addLog(`根据搜索结果选择入口文件: ${entryPoint}`, "success");
+          }
         }
-      }
 
-      if (!entryPoint || !entryContent) {
-        throw new Error('无法找到项目入口文件，分析终止。');
-      }
-
-      const entryFunctionName = chooseEntryFunctionName({
-        language,
-        entryContent,
-        candidates: Array.from(new Set([
-          ...potentialEntryFunctionNames,
-          'main', 'bootstrap', 'start', 'init', 'App'
-        ].map((x: unknown) => String(x || '').trim()).filter(Boolean))),
-      });
-
-      updatePanorama(prev => ({
-        ...prev,
-        callChain: { ...prev.callChain, entryPoint },
-        summary: `入口文件已确认：${entryPoint}。正在按最大 ${maxDrillDepth} 层递归下钻调用链。`,
-      }));
-      updateGraph(prev => ({
-        ...prev,
-        project: {
-          ...prev.project,
-          summary: `入口文件 ${entryPoint} 已确认，正在递归下钻关键函数调用链（最多 ${maxDrillDepth} 层）。`,
+        if (!entryPoint || !entryContent) {
+          throw new Error("无法找到项目入口文件，分析终止。");
         }
-      }));
 
-      const summaryPaths = [entryPoint, readmeFile, ...manifestFiles].filter(Boolean) as string[];
-      try {
-        const summaryContents = await fetchContents(url, summaryPaths.slice(0, 6), token);
-        ensureActive();
-        const summaryPrompt = `
+        const entryFunctionName = chooseEntryFunctionName({
+          language,
+          entryContent,
+          candidates: Array.from(
+            new Set(
+              [
+                ...potentialEntryFunctionNames,
+                "main",
+                "bootstrap",
+                "start",
+                "init",
+                "App",
+              ]
+                .map((x: unknown) => String(x || "").trim())
+                .filter(Boolean),
+            ),
+          ),
+        });
+
+        updatePanorama((prev) => ({
+          ...prev,
+          callChain: { ...prev.callChain, entryPoint },
+          summary: `入口文件已确认：${entryPoint}。正在按最大 ${maxDrillDepth} 层递归下钻调用链。`,
+        }));
+        updateGraph((prev) => ({
+          ...prev,
+          project: {
+            ...prev.project,
+            summary: `入口文件 ${entryPoint} 已确认，正在递归下钻关键函数调用链（最多 ${maxDrillDepth} 层）。`,
+          },
+        }));
+
+        const summaryPaths = [entryPoint, readmeFile, ...manifestFiles].filter(
+          Boolean,
+        ) as string[];
+        try {
+          const summaryContents = await fetchContents(
+            url,
+            summaryPaths.slice(0, 6),
+            token,
+          );
+          ensureActive();
+          const summaryPrompt = `
 你是项目概要分析器。请根据 README、入口文件和清单文件，输出项目中文简介与技术栈（简洁）。
 
 仓库：${repoName}
@@ -2396,366 +3347,465 @@ ${verifyContent}
   "techStack": ["React", "TypeScript"]
 }
 `;
-        const summaryResult = await requestJsonFromLlm(summaryPrompt, { label: '项目概要与技术栈生成' });
-        ensureActive();
-        const summary = typeof summaryResult.summary === 'string' ? summaryResult.summary : '';
-        const techStack = Array.isArray(summaryResult.techStack) ? summaryResult.techStack.map(String).slice(0, 12) : [];
-        if (summary || techStack.length) {
-          updateGraph(prev => ({ ...prev, project: { ...prev.project, summary: summary || prev.project.summary, techStack } }));
-          updatePanorama(prev => ({ ...prev, summary: summary || prev.summary }));
-        }
-      } catch (e) {
-        addLog('项目概要生成失败，继续调用链分析（不影响下钻）', 'info');
-      }
-
-      setStatus('recursive_drilling');
-      addLog(drillLog('开始逐级下钻调用链（动态渲染）...'), 'thinking');
-
-      const queue: DrillTask[] = [];
-      const visited = new Set<string>();
-      const rootNodeId = makeNodeId(undefined, entryFunctionName, 0);
-      const entryLine = findFunctionLineNumber(entryContent, entryFunctionName);
-      upsertGraphNode({
-        id: rootNodeId,
-        label: entryFunctionName,
-        file: entryPoint,
-        line: entryLine,
-        type: 'function',
-        importance: 'high',
-        description: '入口函数（待展开）',
-        depth: 0,
-        drillFlag: 1,
-        callStatus: 'queued',
-      });
-      appendCallRecord({
-        nodeId: rootNodeId,
-        functionName: entryFunctionName,
-        file: entryPoint,
-        line: entryLine,
-        depth: 0,
-        drillFlag: 1,
-        status: 'queued',
-      });
-
-      queue.push({
-        nodeId: rootNodeId,
-        functionName: entryFunctionName,
-        possibleFile: entryPoint,
-        depth: 0,
-        drillFlag: 1,
-      });
-
-      while (queue.length > 0) {
-        ensureActive();
-        const task = queue.shift()!;
-        const visitKey = `${task.depth}:${task.functionName}:${task.possibleFile || task.parentFile || ''}`;
-        if (visited.has(visitKey)) continue;
-        visited.add(visitKey);
-
-        if (task.drillFlag === -1) {
-          updateCallRecord(task.nodeId, { status: 'skipped' });
-          continue;
-        }
-        if (task.depth > maxDrillDepth) {
-          updateCallRecord(task.nodeId, { status: 'skipped', error: `超过最大下钻层级 ${maxDrillDepth}` });
-          continue;
-        }
-
-        updateCallRecord(task.nodeId, { status: 'analyzing' });
-        const drillChain = buildFunctionChainByNodeId(task.nodeId) || `${task.functionName}()`;
-        addLog(drillLog(`下钻 L${task.depth}: ${drillChain}`), 'thinking');
-
-        let resolved: Awaited<ReturnType<typeof resolveAndAnalyzeFunctionWithCache>>;
-        try {
-          resolved = await resolveAndAnalyzeFunctionWithCache({
-            url,
-            token,
-            codeFiles,
-            parentFile: task.parentFile,
-            parentFunctionName: task.parentFunctionName,
-            functionName: task.functionName,
-            guessedFile: task.possibleFile,
-            language,
-            depth: task.depth,
-            isEntry: task.depth === 0,
+          const summaryResult = await requestJsonFromLlm(summaryPrompt, {
+            label: "项目概要与技术栈生成",
           });
           ensureActive();
-        } catch (e: any) {
-          addLog(drillLog(`函数分析失败: ${drillChain} (${e?.message || '未知错误'})`), 'error');
-          updateCallRecord(task.nodeId, { status: 'failed', error: e?.message || '函数分析失败' });
-          continue;
+          const summary =
+            typeof summaryResult.summary === "string"
+              ? summaryResult.summary
+              : "";
+          const techStack = Array.isArray(summaryResult.techStack)
+            ? summaryResult.techStack.map(String).slice(0, 12)
+            : [];
+          if (summary || techStack.length) {
+            updateGraph((prev) => ({
+              ...prev,
+              project: {
+                ...prev.project,
+                summary: summary || prev.project.summary,
+                techStack,
+              },
+            }));
+            updatePanorama((prev) => ({
+              ...prev,
+              summary: summary || prev.summary,
+            }));
+          }
+        } catch (e) {
+          addLog("项目概要生成失败，继续调用链分析（不影响下钻）", "info");
         }
-        const located = resolved.located;
-        const locateAttempts = located.attempts || [];
-        updateCallRecord(task.nodeId, { locateAttempts });
 
-        if (resolved.cache.locateHit || resolved.cache.drillHit) {
-          addLog(
-            drillLog(`缓存命中: ${drillChain}（定位缓存: ${resolved.cache.locateHit ? '是' : '否'}，分析缓存: ${resolved.cache.drillHit ? '是' : '否'}）`),
-            'info'
-          );
-        }
+        setStatus("recursive_drilling");
+        addLog(drillLog("开始逐级下钻调用链（动态渲染）..."), "thinking");
 
-      if (!located.file || !located.content || !resolved.analyzed) {
-          if (located.isSystemOrLibraryFunction) {
-            const bridgeResult = await tryBridgeFrameworkCall({
-              language,
-              functionName: task.functionName,
-              reason: located.systemOrLibraryReason,
+        const queue: DrillTask[] = [];
+        const visited = new Set<string>();
+        const rootNodeId = makeNodeId(undefined, entryFunctionName, 0);
+        const entryLine = findFunctionLineNumber(
+          entryContent,
+          entryFunctionName,
+        );
+        upsertGraphNode({
+          id: rootNodeId,
+          label: entryFunctionName,
+          file: entryPoint,
+          line: entryLine,
+          type: "function",
+          importance: "high",
+          description: "入口函数（待展开）",
+          depth: 0,
+          drillFlag: 1,
+          callStatus: "queued",
+        });
+        appendCallRecord({
+          nodeId: rootNodeId,
+          functionName: entryFunctionName,
+          file: entryPoint,
+          line: entryLine,
+          depth: 0,
+          drillFlag: 1,
+          status: "queued",
+        });
+
+        queue.push({
+          nodeId: rootNodeId,
+          functionName: entryFunctionName,
+          possibleFile: entryPoint,
+          depth: 0,
+          drillFlag: 1,
+        });
+
+        while (queue.length > 0) {
+          ensureActive();
+          const task = queue.shift()!;
+          const visitKey = `${task.depth}:${task.functionName}:${task.possibleFile || task.parentFile || ""}`;
+          if (visited.has(visitKey)) continue;
+          visited.add(visitKey);
+
+          if (task.drillFlag === -1) {
+            updateCallRecord(task.nodeId, { status: "skipped" });
+            continue;
+          }
+          if (task.depth > maxDrillDepth) {
+            updateCallRecord(task.nodeId, {
+              status: "skipped",
+              error: `超过最大下钻层级 ${maxDrillDepth}`,
+            });
+            continue;
+          }
+
+          updateCallRecord(task.nodeId, { status: "analyzing" });
+          const drillChain =
+            buildFunctionChainByNodeId(task.nodeId) || `${task.functionName}()`;
+          addLog(drillLog(`下钻 L${task.depth}: ${drillChain}`), "thinking");
+
+          let resolved: Awaited<
+            ReturnType<typeof resolveAndAnalyzeFunctionWithCache>
+          >;
+          try {
+            resolved = await resolveAndAnalyzeFunctionWithCache({
               url,
               token,
               codeFiles,
-              maxChildren: maxChildCallsPerFunction,
+              parentFile: task.parentFile,
+              parentFunctionName: task.parentFunctionName,
+              functionName: task.functionName,
+              guessedFile: task.possibleFile,
+              language,
+              depth: task.depth,
+              isEntry: task.depth === 0,
             });
-            if (bridgeResult) {
-              try {
-                const bridgeChildren = bridgeResult.children;
-                if (bridgeChildren.length > 0) {
-                  addLog(
-                    drillLog(`命中框架桥接策略[${bridgeResult.strategyId}]: ${drillChain}，转入 ${bridgeChildren.length} 个业务入口继续下钻`),
-                    'info'
-                  );
-                  updateCallRecord(task.nodeId, {
-                    status: 'done',
-                    drillFlag: 1,
-                  });
-                  upsertGraphNode({
-                    id: task.nodeId,
-                    label: task.functionName,
-                    file: task.possibleFile || task.parentFile || 'FrameworkBridge',
-                    description: `框架桥接节点（${bridgeResult.strategyName}：${located.systemOrLibraryReason || '框架运行时调用'}），已切换到项目业务入口继续下钻`,
-                    importance: 'medium',
-                    depth: task.depth,
-                    drillFlag: 1,
-                    callStatus: 'done',
-                  });
-
-                  for (const child of bridgeChildren) {
-                    const childNodeId = makeNodeId(task.nodeId, child.name, task.depth + 1);
-                    upsertGraphNode({
-                      id: childNodeId,
-                      label: child.name,
-                      file: child.possibleFile,
-                      httpMethod: child.httpMethod,
-                      httpRoute: child.httpRoute,
-                      type: child.type,
-                      importance: child.importance,
-                      description: child.description,
-                      depth: task.depth + 1,
-                      drillFlag: 1,
-                      callStatus: 'queued',
-                    });
-                    upsertGraphEdge(task.nodeId, childNodeId);
-                    appendCallRecord({
-                      nodeId: childNodeId,
-                      functionName: child.name,
-                      file: child.possibleFile,
-                      line: undefined,
-                      depth: task.depth + 1,
-                      drillFlag: 1,
-                      parentNodeId: task.nodeId,
-                      status: 'queued',
-                    });
-                    if (task.depth + 1 <= maxDrillDepth) {
-                      queue.push({
-                        nodeId: childNodeId,
-                        functionName: child.name,
-                        parentNodeId: task.nodeId,
-                        parentFile: child.possibleFile,
-                        parentFunctionName: task.functionName,
-                        possibleFile: child.possibleFile,
-                        depth: task.depth + 1,
-                        drillFlag: 1,
-                      });
-                    }
-                  }
-                  continue;
-                }
-              } catch (e: any) {
-                addLog(drillLog(`框架桥接失败，回退为停止下钻: ${drillChain} (${e?.message || '未知错误'})`), 'info');
-              }
-            }
+            ensureActive();
+          } catch (e: any) {
             addLog(
-              drillLog(`停止下钻（系统/库函数）: ${drillChain}，原因：${located.systemOrLibraryReason || 'AI 已标记'}`),
-              'thinking'
+              drillLog(
+                `函数分析失败: ${drillChain} (${e?.message || "未知错误"})`,
+              ),
+              "error",
             );
             updateCallRecord(task.nodeId, {
-              status: 'skipped',
-              drillFlag: -1,
-              error: `系统/库函数，停止下钻：${located.systemOrLibraryReason || '已标记'}`,
+              status: "failed",
+              error: e?.message || "函数分析失败",
+            });
+            continue;
+          }
+          const located = resolved.located;
+          const locateAttempts = located.attempts || [];
+          updateCallRecord(task.nodeId, { locateAttempts });
+
+          if (resolved.cache.locateHit || resolved.cache.drillHit) {
+            addLog(
+              drillLog(
+                `缓存命中: ${drillChain}（定位缓存: ${resolved.cache.locateHit ? "是" : "否"}，分析缓存: ${resolved.cache.drillHit ? "是" : "否"}）`,
+              ),
+              "info",
+            );
+          }
+
+          if (!located.file || !located.content || !resolved.analyzed) {
+            if (located.isSystemOrLibraryFunction) {
+              const bridgeResult = await tryBridgeFrameworkCall({
+                language,
+                functionName: task.functionName,
+                reason: located.systemOrLibraryReason,
+                url,
+                token,
+                codeFiles,
+                maxChildren: maxChildCallsPerFunction,
+              });
+              if (bridgeResult) {
+                try {
+                  const bridgeChildren = bridgeResult.children;
+                  if (bridgeChildren.length > 0) {
+                    addLog(
+                      drillLog(
+                        `命中框架桥接策略[${bridgeResult.strategyId}]: ${drillChain}，转入 ${bridgeChildren.length} 个业务入口继续下钻`,
+                      ),
+                      "info",
+                    );
+                    updateCallRecord(task.nodeId, {
+                      status: "done",
+                      drillFlag: 1,
+                    });
+                    upsertGraphNode({
+                      id: task.nodeId,
+                      label: task.functionName,
+                      file:
+                        task.possibleFile ||
+                        task.parentFile ||
+                        "FrameworkBridge",
+                      description: `框架桥接节点（${bridgeResult.strategyName}：${located.systemOrLibraryReason || "框架运行时调用"}），已切换到项目业务入口继续下钻`,
+                      importance: "medium",
+                      depth: task.depth,
+                      drillFlag: 1,
+                      callStatus: "done",
+                    });
+
+                    for (const child of bridgeChildren) {
+                      const childNodeId = makeNodeId(
+                        task.nodeId,
+                        child.name,
+                        task.depth + 1,
+                      );
+                      upsertGraphNode({
+                        id: childNodeId,
+                        label: child.name,
+                        file: child.possibleFile,
+                        httpMethod: child.httpMethod,
+                        httpRoute: child.httpRoute,
+                        type: child.type,
+                        importance: child.importance,
+                        description: child.description,
+                        depth: task.depth + 1,
+                        drillFlag: 1,
+                        callStatus: "queued",
+                      });
+                      upsertGraphEdge(task.nodeId, childNodeId);
+                      appendCallRecord({
+                        nodeId: childNodeId,
+                        functionName: child.name,
+                        file: child.possibleFile,
+                        line: undefined,
+                        depth: task.depth + 1,
+                        drillFlag: 1,
+                        parentNodeId: task.nodeId,
+                        status: "queued",
+                      });
+                      if (task.depth + 1 <= maxDrillDepth) {
+                        queue.push({
+                          nodeId: childNodeId,
+                          functionName: child.name,
+                          parentNodeId: task.nodeId,
+                          parentFile: child.possibleFile,
+                          parentFunctionName: task.functionName,
+                          possibleFile: child.possibleFile,
+                          depth: task.depth + 1,
+                          drillFlag: 1,
+                        });
+                      }
+                    }
+                    continue;
+                  }
+                } catch (e: any) {
+                  addLog(
+                    drillLog(
+                      `框架桥接失败，回退为停止下钻: ${drillChain} (${e?.message || "未知错误"})`,
+                    ),
+                    "info",
+                  );
+                }
+              }
+              addLog(
+                drillLog(
+                  `停止下钻（系统/库函数）: ${drillChain}，原因：${located.systemOrLibraryReason || "AI 已标记"}`,
+                ),
+                "thinking",
+              );
+              updateCallRecord(task.nodeId, {
+                status: "skipped",
+                drillFlag: -1,
+                error: `系统/库函数，停止下钻：${located.systemOrLibraryReason || "已标记"}`,
+              });
+              upsertGraphNode({
+                id: task.nodeId,
+                label: task.functionName,
+                file: task.possibleFile || task.parentFile || "System/Library",
+                description: `系统/库函数，停止下钻：${located.systemOrLibraryReason || "已标记"}`,
+                importance: "low",
+                depth: task.depth,
+                drillFlag: -1,
+                callStatus: "skipped",
+              });
+              continue;
+            }
+            addLog(
+              drillLog(`下钻失败（无法定位函数定义）: ${drillChain}`),
+              "error",
+              locateAttempts,
+            );
+            updateCallRecord(task.nodeId, {
+              status: "failed",
+              error: "无法定位函数定义",
             });
             upsertGraphNode({
               id: task.nodeId,
               label: task.functionName,
-              file: task.possibleFile || task.parentFile || 'System/Library',
-              description: `系统/库函数，停止下钻：${located.systemOrLibraryReason || '已标记'}`,
-              importance: 'low',
+              file: task.possibleFile || task.parentFile || "Unknown",
+              description: "下钻失败：无法定位函数定义",
+              importance: "low",
               depth: task.depth,
-              drillFlag: -1,
-              callStatus: 'skipped',
+              drillFlag: task.drillFlag,
+              callStatus: "failed",
             });
             continue;
           }
-          addLog(drillLog(`下钻失败（无法定位函数定义）: ${drillChain}`), 'error', locateAttempts);
-          updateCallRecord(task.nodeId, { status: 'failed', error: '无法定位函数定义' });
+
           upsertGraphNode({
             id: task.nodeId,
             label: task.functionName,
-            file: task.possibleFile || task.parentFile || 'Unknown',
-            description: '下钻失败：无法定位函数定义',
-            importance: 'low',
+            file: located.file,
+            line: located.line,
+            description: "正在分析函数体与关键调用...",
+            importance: task.depth === 0 ? "high" : "medium",
             depth: task.depth,
             drillFlag: task.drillFlag,
-            callStatus: 'failed',
+            callStatus: "analyzing",
           });
-          continue;
-        }
 
-        upsertGraphNode({
-          id: task.nodeId,
-          label: task.functionName,
-          file: located.file,
-          line: located.line,
-          description: '正在分析函数体与关键调用...',
-          importance: task.depth === 0 ? 'high' : 'medium',
-          depth: task.depth,
-          drillFlag: task.drillFlag,
-          callStatus: 'analyzing',
-        });
+          const analyzed: LlmFunctionAnalysis = resolved.analyzed;
+          addLog(
+            drillLog(
+              `定位成功：${drillChain} -> ${located.file}${located.line ? `:L${located.line}` : ""}`,
+            ),
+            "thinking",
+            locateAttempts,
+          );
 
-        const analyzed: LlmFunctionAnalysis = resolved.analyzed;
-        addLog(
-          drillLog(`定位成功：${drillChain} -> ${located.file}${located.line ? `:L${located.line}` : ''}`),
-          'thinking',
-          locateAttempts
-        );
-
-        const currentDesc = analyzed.description || (task.depth === 0 ? '项目入口函数' : '关键调用节点');
-        const endpointMeta = detectHttpEndpointFromLocatedFunction({
-          language,
-          fileContent: located.content,
-          functionName: analyzed.functionName || task.functionName,
-        });
-        upsertGraphNode({
-          id: task.nodeId,
-          label: analyzed.functionName || task.functionName,
-          file: located.file,
-          line: located.line,
-          httpMethod: endpointMeta.httpMethod,
-          httpRoute: endpointMeta.httpRoute,
-          type: analyzed.functionType,
-          importance: analyzed.importance || (task.depth === 0 ? 'high' : 'medium'),
-          description: currentDesc,
-          depth: task.depth,
-          drillFlag: task.drillFlag,
-          callStatus: 'done',
-        });
-
-        const children = Array.isArray(analyzed.calls) ? analyzed.calls.slice(0, maxChildCallsPerFunction) : [];
-        addLog(drillLog(`发现 ${children.length} 个关键子调用节点: ${drillChain}`), 'info');
-
-        for (const child of children) {
-          const childName = String(child.name || '').trim();
-          if (!childName) continue;
-          const childNodeId = makeNodeId(task.nodeId, childName, task.depth + 1);
-          const drillFlag = normalizeDrillFlag(child.shouldDrill);
-          const possibleFile = sanitizeFilePath(child.possibleFile) || undefined;
-          const childFile = possibleFile || located.file;
-
+          const currentDesc =
+            analyzed.description ||
+            (task.depth === 0 ? "项目入口函数" : "关键调用节点");
+          const endpointMeta = detectHttpEndpointFromLocatedFunction({
+            language,
+            fileContent: located.content,
+            functionName: analyzed.functionName || task.functionName,
+          });
           upsertGraphNode({
-            id: childNodeId,
-            label: childName,
-            file: childFile,
-            type: child.type,
-            importance: child.importance,
-            description: child.description || (drillFlag === -1 ? '叶子节点或次要函数' : '待下钻分析'),
-            depth: task.depth + 1,
-            drillFlag,
-            callStatus: drillFlag === -1 ? 'skipped' : 'queued',
-          });
-          upsertGraphEdge(task.nodeId, childNodeId);
-
-          appendCallRecord({
-            nodeId: childNodeId,
-            functionName: childName,
-            file: childFile,
-            line: undefined,
-            depth: task.depth + 1,
-            drillFlag,
-            parentNodeId: task.nodeId,
-            status: drillFlag === -1 ? 'skipped' : 'queued',
+            id: task.nodeId,
+            label: analyzed.functionName || task.functionName,
+            file: located.file,
+            line: located.line,
+            httpMethod: endpointMeta.httpMethod,
+            httpRoute: endpointMeta.httpRoute,
+            type: analyzed.functionType,
+            importance:
+              analyzed.importance || (task.depth === 0 ? "high" : "medium"),
+            description: currentDesc,
+            depth: task.depth,
+            drillFlag: task.drillFlag,
+            callStatus: "done",
           });
 
-          if (task.depth + 1 <= maxDrillDepth && drillFlag !== -1) {
-            queue.push({
-              nodeId: childNodeId,
-              functionName: childName,
-              parentNodeId: task.nodeId,
-              parentFile: located.file,
-              parentFunctionName: analyzed.functionName || task.functionName,
-              possibleFile,
+          const children = Array.isArray(analyzed.calls)
+            ? analyzed.calls.slice(0, maxChildCallsPerFunction)
+            : [];
+          addLog(
+            drillLog(`发现 ${children.length} 个关键子调用节点: ${drillChain}`),
+            "info",
+          );
+
+          for (const child of children) {
+            const childName = String(child.name || "").trim();
+            if (!childName) continue;
+            const childNodeId = makeNodeId(
+              task.nodeId,
+              childName,
+              task.depth + 1,
+            );
+            const drillFlag = normalizeDrillFlag(child.shouldDrill);
+            const possibleFile =
+              sanitizeFilePath(child.possibleFile) || undefined;
+            const childFile = possibleFile || located.file;
+
+            upsertGraphNode({
+              id: childNodeId,
+              label: childName,
+              file: childFile,
+              type: child.type,
+              importance: child.importance,
+              description:
+                child.description ||
+                (drillFlag === -1 ? "叶子节点或次要函数" : "待下钻分析"),
               depth: task.depth + 1,
               drillFlag,
+              callStatus: drillFlag === -1 ? "skipped" : "queued",
             });
+            upsertGraphEdge(task.nodeId, childNodeId);
+
+            appendCallRecord({
+              nodeId: childNodeId,
+              functionName: childName,
+              file: childFile,
+              line: undefined,
+              depth: task.depth + 1,
+              drillFlag,
+              parentNodeId: task.nodeId,
+              status: drillFlag === -1 ? "skipped" : "queued",
+            });
+
+            if (task.depth + 1 <= maxDrillDepth && drillFlag !== -1) {
+              queue.push({
+                nodeId: childNodeId,
+                functionName: childName,
+                parentNodeId: task.nodeId,
+                parentFile: located.file,
+                parentFunctionName: analyzed.functionName || task.functionName,
+                possibleFile,
+                depth: task.depth + 1,
+                drillFlag,
+              });
+            }
           }
+
+          updateCallRecord(task.nodeId, {
+            status: "done",
+            file: located.file,
+            line: located.line,
+          });
         }
 
-        updateCallRecord(task.nodeId, { status: 'done', file: located.file, line: located.line });
-      }
+        addLog(drillLog("递归下钻完成，正在整理最终全景图信息..."), "thinking");
+        setStatus("generating_graph");
 
-      addLog(drillLog('递归下钻完成，正在整理最终全景图信息...'), 'thinking');
-      setStatus('generating_graph');
-
-      updatePanorama(prev => ({
-        ...prev,
-        summary: graphRef.current?.project?.summary || prev.summary,
-      }));
-
-      if (!graphRef.current?.project.techStack?.length) {
-        updateGraph(prev => ({
+        updatePanorama((prev) => ({
           ...prev,
-          project: {
-            ...prev.project,
-            techStack: [language].filter(Boolean),
-          }
+          summary: graphRef.current?.project?.summary || prev.summary,
         }));
-      }
 
-      try {
-        addLog('AI Agent: 正在基于完整调用链进行模块划分...', 'thinking');
-        await classifyModulesAfterAnalysis();
-        ensureActive();
-      } catch (e: any) {
-        setModuleClassificationFailed(true);
-        addLog(`模块划分失败，保留未分组状态: ${e?.message || '未知错误'}`, 'info');
-      }
-
-      setStatus('complete');
-      addLog('全景图生成完成（逐步下钻模式）', 'success');
-    } catch (error: any) {
-      if (error?.message === '__ANALYSIS_STOPPED__') {
-        addLog('分析已停止。', 'info');
-        setStatus('idle');
-        return;
-      }
-      console.error(error);
-      let errorMessage = error.message || '未知错误';
-
-      if (error.response?.status === 403) {
-        errorMessage = 'GitHub API 访问受限 (403)。可能触发频率限制，请提供 GitHub Token。';
-      } else if (String(error.message || '').includes('403')) {
-        errorMessage = 'GitHub API 访问受限 (403)。请提供 GitHub Token。';
-      } else if (sourceType === 'local' && error?.response?.data?.code === 'LOCAL_PATH_NOT_FOUND') {
-        errorMessage = LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE;
-        if (typeof window !== 'undefined') {
-          window.alert(LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE);
+        if (!graphRef.current?.project.techStack?.length) {
+          updateGraph((prev) => ({
+            ...prev,
+            project: {
+              ...prev.project,
+              techStack: [language].filter(Boolean),
+            },
+          }));
         }
-      }
 
-      addLog(`错误: ${errorMessage}`, 'error');
-      setStatus('error');
-    }
-  }, [updateGraph, updatePanorama, classifyModulesAfterAnalysis, clearFileCache, apiBySource, sourcePayload, maxDrillDepth, maxChildCallsPerFunction, requestJsonFromLlm]);
+        try {
+          addLog("AI Agent: 正在基于完整调用链进行模块划分...", "thinking");
+          await classifyModulesAfterAnalysis();
+          ensureActive();
+        } catch (e: any) {
+          setModuleClassificationFailed(true);
+          addLog(
+            `模块划分失败，保留未分组状态: ${e?.message || "未知错误"}`,
+            "info",
+          );
+        }
+
+        setStatus("complete");
+        addLog("全景图生成完成（逐步下钻模式）", "success");
+      } catch (error: any) {
+        if (error?.message === "__ANALYSIS_STOPPED__") {
+          addLog("分析已停止。", "info");
+          setStatus("idle");
+          return;
+        }
+        console.error(error);
+        let errorMessage = error.message || "未知错误";
+
+        if (error.response?.status === 403) {
+          errorMessage =
+            "GitHub API 访问受限 (403)。可能触发频率限制，请提供 GitHub Token。";
+        } else if (String(error.message || "").includes("403")) {
+          errorMessage = "GitHub API 访问受限 (403)。请提供 GitHub Token。";
+        } else if (
+          sourceType === "local" &&
+          error?.response?.data?.code === "LOCAL_PATH_NOT_FOUND"
+        ) {
+          errorMessage = LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE;
+          if (typeof window !== "undefined") {
+            window.alert(LOCAL_ANALYSIS_UNAVAILABLE_MESSAGE);
+          }
+        }
+
+        addLog(`错误: ${errorMessage}`, "error");
+        setStatus("error");
+      }
+    },
+    [
+      updateGraph,
+      updatePanorama,
+      classifyModulesAfterAnalysis,
+      clearFileCache,
+      apiBySource,
+      sourcePayload,
+      maxDrillDepth,
+      maxChildCallsPerFunction,
+      requestJsonFromLlm,
+    ],
+  );
 
   return {
     status,
